@@ -1,0 +1,388 @@
+/* Load local font instead of Google Fonts */
+@font-face {
+  font-family: 'Workbench';
+  src: url('/static/Ndot77JPExtended.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* General Styling */
+body {
+  font-family: 'Workbench', serif;
+  text-align: center;
+  margin: 40px;
+  background-color: hsl(0, 0%, 21%);
+  color: white;
+}
+
+#header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-variation-settings: "SCAN" -20;
+}
+
+#game-title {
+  font-size: 75px;
+  letter-spacing: 3px;
+  font-variation-settings: "SCAN" -15;
+  position: relative;
+  top: -80px;
+}
+
+#titleImg {
+  max-width: 100%;
+  height: auto;
+  position: relative;
+  top: -80px;
+}
+
+#mine-count {
+  font-size: 40px;
+  display: none;
+}
+
+h1 {
+  background: white;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 20px;
+}
+
+button {
+  padding: 25px 50px;
+  font-size: 40px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 50px;
+  cursor: pointer;
+  border: 2px solid #555;
+  background-color: transparent;
+  color: white;
+  border-radius: 30px;
+  font-family: 'Workbench', serif;
+  transition: all 0.3s ease;
+  display: block;
+  margin: 50px auto;
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  font-variation-settings: "SCAN" -20;
+  transform: translate(-50%, -50%);
+}
+
+#top-times {
+  font-variation-settings: "SCAN" -20;
+  position: absolute;
+  top: 80px;
+  left: 10px;
+  font-family: 'Workbench', serif;
+  color: white;
+  font-size: 35px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#top-times th, #top-times td {
+  padding: 10px 20px;
+  text-align: center;
+  border: none;
+}
+
+#top-times thead {
+  background-color: #333;
+  text-transform: uppercase;
+}
+
+#top-times tr:nth-child(odd) {
+  background-color: #222;
+}
+
+#top-times th:first-child,
+#top-times th:nth-child(2),
+#top-times th:nth-child(3) {
+  background-color: #363636;
+  color: white;
+}
+#nickname-input {
+  padding: 25px 50px;
+  font-size: 30px;
+  letter-spacing: 2px;
+  margin-bottom: 50px;
+  cursor: pointer;
+  border: 2px solid #555;
+  background-color: transparent;
+  color: white;
+  border-radius: 30px;
+  font-family: 'Workbench', serif;
+  transition: all 0.3s ease;
+  display: block;
+  margin: 50px auto;
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  font-variation-settings: "SCAN" -20;
+  text-transform: uppercase;
+}
+#nickname-fixed {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  font-size: 40px;
+  color: white;
+  font-family: 'Workbench', serif;
+  z-index: 9998;
+  display: none; /* will show it once user inputs the name */
+  text-transform: uppercase;
+  font-variation-settings: "SCAN" -20;
+}
+
+#animated-title {
+  width: 400px;
+  height: auto;
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.liquified-text,
+.liquified-cell-text {
+  font-family: 'Workbench', sans-serif;
+  font-variation-settings: "SCAN" -20;
+  font-weight: 100;
+  font-style: normal;
+  font-optical-sizing: auto;
+}
+
+.liquified-cell-text {
+  font-variation-settings: "SCAN" -45;
+  font-weight: bold;
+  
+}
+
+button:hover {
+  background-color: #444;
+}
+
+/* Board Container */
+.board-container {
+  display: inline-block;
+  overflow: hidden;
+  background: linear-gradient(270deg, rgb(255, 255, 255), #ad0000, #000000);
+  background-size: 600% 600%;
+  animation: gradientFlow 50s ease-in-out infinite;
+  box-shadow: none;
+}
+
+@keyframes gradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin: 0 auto;
+  padding: 0;
+}
+#nickname-display {
+  font-size: 40px;
+  font-weight: bold;
+  color: white;
+  background-color: transparent;
+  padding: 10px 20px;
+  border-radius: 10px;
+  text-align: center;
+  z-index: 100;
+  font-variation-settings: "SCAN" -20;
+  
+}
+td {
+  width: 45px;
+  height: 45px;
+  font-size: 30px;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+  border: none;
+  background-color: transparent;
+  padding: 0;
+  transition: background-color 0.2s ease;
+  box-sizing: border-box;
+  will-change: transform, opacity, background-color;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transition: background-color 180ms ease, color 140ms ease, transform 200ms cubic-bezier(.2,.9,.3,1);
+}
+
+.game-active td:hover:not(.revealed):not(.flagged) {
+  background-color: #5f5f5f50;
+  border-radius: 10px;
+}
+
+/* Revealed and flagged styling */
+td.revealed,
+td.flagged {
+  background-color: #363636;
+  color: white;
+}
+
+/* Match hover rounding when outer cell */
+.game-active td.top-left:hover:not(.revealed):not(.flagged),
+.game-active td.top-right:hover:not(.revealed):not(.flagged),
+.game-active td.bottom-left:hover:not(.revealed):not(.flagged),
+.game-active td.bottom-right:hover:not(.revealed):not(.flagged) {
+  border-radius: 10px;
+}
+
+
+
+td.flagged {
+  font-weight: bold;
+  color: red;
+}
+
+td img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+@keyframes popAndReveal {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.75);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.cell-pop {
+  animation: popAndReveal 0.3s ease;
+}
+.crt-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9990;
+
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.1) 0px,
+    rgba(0, 0, 0, 0.1) 2px,
+    transparent 12px,
+    transparent 12px
+  );
+
+  mix-blend-mode: overlay;
+  animation: flicker 0.15s infinite;
+  opacity: 0.3;
+}
+@keyframes flicker {
+  0% { opacity: 0.28; }
+  50% { opacity: 0.4; }
+  100% { opacity: 0.27; }
+}
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 255, 0, 0.02);
+  pointer-events: none;
+  z-index: 9990;
+}
+
+/* Enhanced cell open animation (smoother, GPU-accelerated) */
+td {
+  will-change: transform, opacity, background-color;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transition: background-color 180ms ease, color 140ms ease, transform 200ms cubic-bezier(.2,.9,.3,1);
+}
+
+/* class to add when a cell is revealed (apply from JS) */
+.cell-open {
+  animation: openCell 220ms cubic-bezier(.2,.9,.3,1) both;
+  pointer-events: none; /* avoid double-tap issues on touch */
+}
+
+/* subtle pop + flip + fade-in for revealed cells */
+@keyframes openCell {
+  0% {
+    transform: perspective(400px) translateZ(0) scale(0.96) rotateX(10deg);
+    opacity: 0.0;
+  }
+  60% {
+    transform: perspective(400px) translateZ(6px) scale(1.03) rotateX(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(400px) translateZ(0) scale(1) rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+/* When many cells open at once, stagger animations via CSS variable (set from JS) */
+.cell-open[data-delay] {
+  animation-delay: calc(var(--delay, 0ms));
+}
+
+/* Respect reduced motion preferences (important for accessibility and low-power devices) */
+@media (prefers-reduced-motion: reduce) {
+  td, .cell-open {
+    transition: none;
+    animation: none;
+    transform: none !important;
+  }
+}
+
+/* Mobile / touch optimizations */
+@media (max-width: 600px) {
+  /* slightly smaller tiles to fit narrow screens but keep touch targets reasonable */
+  td {
+    width: 42px;
+    height: 42px;
+    font-size: 26px;
+  }
+
+  button, #nickname-input {
+    padding: 18px 36px;
+    font-size: 26px;
+  }
+
+  #animated-title {
+    width: 320px;
+    top: -30px;
+  }
+}
+
+/* Optional: make revealed cells more distinct on phones */
+@media (max-width: 420px) {
+  td.revealed {
+    background-color: #2e2e2e;
+    border-radius: 6px;
+  }
+}

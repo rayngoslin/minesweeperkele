@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Minesweeper</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/logic.js" defer></script>
+    
+  </head>
+  
+<body>
+  <div id= 'crt'>
+  <div id="header">
+    <img id="animated-title" src="/static/frame1.jpg" alt="Game Title Animation" />
+    <div id="mine-count"> <img src="/static/Bmb1.jpg" alt="💣" 
+      style="width: 48px; height: 48px; 
+      vertical-align: middle; margin-right: 10px;">
+      <span id="mine-counter">10</span></div>
+  </div>
+  <div class="crt-overlay"></div>
+  <button id="start-btn">Start Game</button>
+  <input id="nickname-input" placeholder="Enter 3-letter name" style="display: none;" maxlength="3" />
+  <div id="nickname-display" style="display: none; position: absolute; bottom: 10px;
+  right: 10px; font-weight: bold; "></div>
+  <div id="nickname-fixed" class='nickname-fixed'></div>
+  <div class="board-container">
+    <table id="board"></table>
+  </div>
+  <table id="top-times">
+  </table>
+</div>
+</div>
+<div id="crt-screen" class="crt" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; pointer-events: none;"></div>
+
+</body>
+</html>
