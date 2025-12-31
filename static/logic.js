@@ -1,75 +1,56 @@
-// ======= Global Variables =======
-let gameOver = false;
-let globalBoard = [];
-let totalMines = 100;
-let currentFlags = 0;
+// ===============================
+// Minesweeper logic.js (clean)
+// - Frontend-only (no Flask)
+// - Safe first click (must be 0)
+// - Flood reveal
+// - Flags + chording (right click on revealed number)
+// - Timer + mine counter
+// - Telegram/GitHub Pages friendly paths (./static/...)
+// ===============================
 
-const gameState = {
-  isFirstClick: true,
-  timerInterval: null,
-  startTime: null
-};
-
-
-
-// ======= Start a New Game =======
-async function startGame(presetBoard = null, resetFirstClick = true) {
-  if (resetFirstClick) {
-    updateTitle()
-    updateBestTimesTable(); // Add this after the game starts to show best times
-
-    gameState.isFirstClick = true;
-    stopTimer();
-    const timerEl = document.getElementById('timer');
-    if (timerEl) timerEl.textContent = 'Time: 0s';
-  }
-  document.addEventListener("DOMContentLoaded", () => {
-    const nicknameInput = document.getElementById("nickname-input");
-  
-    nicknameInput.addEventListener("keypress", function (e) {
-      if (e.key === "Enter") {
-        const nickname = nicknameInput.value.trim().toUpperCase();
-  
-        if (nickname.length === 3) {
-          nicknameInput.style.display = "none";
-          startGame();
-        } else {
-          alert("Please enter a 3-letter nickname.");
-        }
-      }
-    });
-  });
-  
-// ======= Board Generation (JS replacement for Flask /new-game) =======
+// ---------- Config ----------
 const ROWS = 32;
 const COLS = 25;
 const NUM_MINES = 100;
 
-function createEmptyBoard() {
-  return Array.from({ length: ROWS }, () =>
-    Array.from({ length: COLS }, () => ({ mine: false, value: 0, revealed: false }))
-  );
-}
+// Asset paths (make sure filenames/case match your /static folder!)
+const ASSET_BOMB = "./static/bmb1.jpg";     // choose ONE case and stick with it
+const ASSET_FLAG = "./static/flag1.jpg";
+const LOGO_FRAME_PATH = "./static/logo/frame"; // frame1.jpg ... frame12.jpg
+const LOGO_FRAMES = 12;
+const LOGO_INTERVAL_MS = 500;
 
-function inBounds(r, c) {
-  return r >= 0 && r < ROWS && c >= 0 && c < COLS;
-}
+// ---------- State ----------
+let board = [];                 // 2D: {mine, value}
+let revealed = new Set();       // "r,c"
+let flagged = new Set();        // "r,c"
+let gameOver = false;
+let firstClick = true;
 
-function computeValues(board) {
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (board[r][c].mine) continue;
-      let value = 0;
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const nr = r + dr, nc = c + dc;
-          if (inBounds(nr, nc) && board[nr][nc].mine) value++;
-        }
-      }
-      board[r][c].value = value;
+let timerInterval = null;
+let startTime = null;
+
+function key(r, c) { return `${r},${c}`; }
+function parseKey(k) { const [r, c] = k.split(",").map(Number); return { r, c }; }
+function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
+
+function neighbors(r, c) {
+  const out = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (inBounds(nr, nc)) out.push({ r: nr, c: nc });
     }
   }
+  return out;
+}
+
+// ---------- Board generation ----------
+function createEmptyBoard() {
+  return Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => ({ mine: false, value: 0 }))
+  );
 }
 
 function sampleUniquePositions(max, count, excludedSet) {
@@ -82,72 +63,117 @@ function sampleUniquePositions(max, count, excludedSet) {
   return [...picked];
 }
 
-function generateBoard(firstClickRow = null, firstClickCol = null) {
-  while (true) {
-    const board = createEmptyBoard();
-
-    const excluded = new Set();
-    if (firstClickRow !== null && firstClickCol !== null) {
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          const nr = firstClickRow + dr, nc = firstClickCol + dc;
-          if (inBounds(nr, nc)) excluded.add(nr * COLS + nc);
-        }
+function computeValues(b) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (b[r][c].mine) continue;
+      let v = 0;
+      for (const n of neighbors(r, c)) {
+        if (b[n.r][n.c].mine) v++;
       }
-    }
-
-    const minePositions = sampleUniquePositions(ROWS * COLS, NUM_MINES, excluded);
-    for (const pos of minePositions) {
-      const r = Math.floor(pos / COLS);
-      const c = pos % COLS;
-      board[r][c].mine = true;
-    }
-
-    computeValues(board);
-
-    if (firstClickRow !== null && firstClickCol !== null) {
-      if (board[firstClickRow][firstClickCol].value === 0) return board;
-    } else {
-      return board;
+      b[r][c].value = v;
     }
   }
 }
-  document.getElementById('start-btn').style.display = 'none';
-  document.getElementById('top-times').style.display = 'none';
-  document.getElementById('animated-title').style.display = 'none';
-  document.getElementById('mine-count').style.display = 'block';
-  document.querySelector('.board-container').classList.add('game-active');
-  document.getElementById('board').style.display = 'table';
 
-  let board;
-  if (presetBoard) {
-    board = presetBoard;
-  } else {
-    // replaced fetch to use frontend generator
-    board = generateBoard(); // no first click yet
+function generateBoardSafe(firstR, firstC) {
+  // Python-like behavior: exclude 3x3 around first click AND require first cell value == 0
+  while (true) {
+    const b = createEmptyBoard();
+
+    const excluded = new Set();
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nr = firstR + dr, nc = firstC + dc;
+        if (inBounds(nr, nc)) excluded.add(nr * COLS + nc);
+      }
+    }
+
+    const mines = sampleUniquePositions(ROWS * COLS, NUM_MINES, excluded);
+    for (const pos of mines) {
+      const r = Math.floor(pos / COLS);
+      const c = pos % COLS;
+      b[r][c].mine = true;
+    }
+
+    computeValues(b);
+
+    if (b[firstR][firstC].value === 0) return b;
   }
+}
 
-  globalBoard = board;
-  gameOver = false;
-  currentFlags = 0;
+function generateBoardInitial() {
+  // Placeholder board before first click (no mines needed yet)
+  // We'll regenerate on first click to guarantee safety
+  const b = createEmptyBoard();
+  return b;
+}
 
-  totalMines = 0;
-  board.forEach(row => row.forEach(cell => {
-    if (cell.mine) totalMines++;
-  }));
+// ---------- UI helpers ----------
+function $(id) { return document.getElementById(id); }
 
-  const table = document.getElementById('board');
-  table.innerHTML = '';
+function setVisible(el, show, displayType = "block") {
+  if (!el) return;
+  el.style.display = show ? displayType : "none";
+}
 
-  board.forEach((row, r) => {
-    const tr = document.createElement('tr');
-    row.forEach((cell, c) => {
-      const td = document.createElement('td');
-      td.setAttribute('data-row', r);
-      td.setAttribute('data-col', c);
+function updateMineCounter() {
+  const mineCountEl = $("mine-count");
+  if (!mineCountEl) return;
 
-      const wrapper = document.createElement('div');
-      wrapper.classList.add('cell-wrapper');
+  const remaining = NUM_MINES - flagged.size;
+  mineCountEl.innerHTML = `
+    <img src="${ASSET_BOMB}" alt="💣"
+      style="width: 48px; height: 48px; vertical-align: middle; margin-right: 10px;">
+    ${remaining}
+  `;
+}
+
+function startTimer() {
+  const timerEl = $("timer");
+  startTime = Date.now();
+
+  if (timerEl) timerEl.textContent = "Time: 0s";
+  stopTimer();
+
+  timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    if (timerEl) timerEl.textContent = `Time: ${s}s`;
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+function animatePop(td) {
+  if (!td) return;
+  td.classList.add("cell-pop");
+  td.addEventListener("animationend", () => td.classList.remove("cell-pop"), { once: true });
+}
+
+// If you have your own corner logic, you can keep calling it.
+// We'll only call it if it exists.
+function safeApplyCornerClasses() {
+  if (typeof applyCornerClasses === "function") applyCornerClasses();
+}
+
+// ---------- Rendering ----------
+function buildTable() {
+  const table = $("board");
+  table.innerHTML = "";
+
+  for (let r = 0; r < ROWS; r++) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < COLS; c++) {
+      const td = document.createElement("td");
+      td.dataset.row = String(r);
+      td.dataset.col = String(c);
+
+      // keep your wrapper corners if your CSS expects it
+      const wrapper = document.createElement("div");
+      wrapper.classList.add("cell-wrapper");
       wrapper.innerHTML = `
         <div class="corner tiny-top-left"></div>
         <div class="corner tiny-top-right"></div>
@@ -156,474 +182,283 @@ function generateBoard(firstClickRow = null, firstClickCol = null) {
       `;
       td.appendChild(wrapper);
 
-      // ==== Left Click ====
-      td.onclick = async () => {
-        if (gameOver || td.classList.contains('revealed') || td.classList.contains('flagged')) return;
-
-        const currentCell = globalBoard[r][c];
-
-        if (gameState.isFirstClick) {
-          gameState.isFirstClick = false;
-          startTimer();
-
-          // replaced server fetch with local generator
-          const newBoard = generateBoard(r, c);
-          startGame(newBoard, false);
-          setTimeout(() => {
-            floodReveal(r, c);
-            applyCornerClasses();
-          }, 50);
-          return;
-        }
-
-        if (currentCell.mine) {
-          const img = document.createElement('img');
-          // left-click mine image
-          img.src = './static/bmb1.jpg';
-          img.alt = '💣';
-          td.innerHTML = '';
-          td.appendChild(img);
-          td.classList.add('revealed');
-          td.classList.add('liquified-cell-text');
-          animatePop(td);
-          alert('Game Over! You clicked a mine!');
-          revealAllMines(globalBoard);
-          gameOver = true;
-          stopTimer();
-          setTimeout(resetToStart, 2000);
-          return;
-        }
-
-        if (currentCell.value === 0) {
-          floodReveal(r, c);
-        } else {
-          td.innerText = currentCell.value;
-          td.classList.add('revealed');
-          td.classList.add('liquified-cell-text');
-          animatePop(td);
-          applyCornerClasses(td);
-        }
-
-        applyCornerClasses();
-        checkWin();
-      };
-
-      // ==== Right Click ====
-      td.oncontextmenu = (e) => {
-        e.preventDefault();
-        if (gameOver) return;
-
-        if (td.classList.contains('revealed')) {
-          const cellValue = parseInt(td.innerText);
-          if (!isNaN(cellValue)) {
-            let flagged = 0;
-            const unrevealed = [];
-            const unflagged = [];
-
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < globalBoard.length && nc >= 0 && nc < globalBoard[0].length) {
-                  const neighbor = document.querySelector(`td[data-row="${nr}"][data-col="${nc}"]`);
-                  if (neighbor.classList.contains('flagged')) flagged++;
-                  else if (!neighbor.classList.contains('revealed')) {
-                    unrevealed.push({ row: nr, col: nc, element: neighbor });
-                    unflagged.push(neighbor);
-                  }
-                }
-              }
-            }
-
-            if (unflagged.length === cellValue - flagged) {
-              unflagged.forEach(cell => {
-                if (!cell.classList.contains('flagged')) {
-                  cell.classList.add('flagged');
-                  // flags
-                  cell.innerHTML = '<img src="./static/flag1.jpg" alt="Flag" style="height: 100%; width: 100%;">';
-                  currentFlags++;
-                  animatePop(cell);
-                }
-              });
-              updateTitle();
-            }
-
-            if (flagged === cellValue) {
-              unrevealed.forEach(({ row, col, element }) => {
-                const currentCell = globalBoard[row][col];
-                if (currentCell.mine) {
-                  element.innerHTML = '<img src="./static/bmb1.jpg" alt="💣">';
-                  element.classList.add('revealed');
-                  element.classList.add('liquified-cell-text');
-                  animatePop(element);
-                  alert('Game Over! You revealed a mine!');
-                  revealAllMines(globalBoard);
-                  gameOver = true;
-                  stopTimer();
-                  setTimeout(resetToStart, 2000);
-                } else if (currentCell.value === 0) {
-                  floodReveal(row, col);
-                } else {
-                  element.innerText = currentCell.value;
-                  element.classList.add('revealed');
-                  element.classList.add('liquified-cell-text');
-                  animatePop(element);
-                }
-              });
-            }
-
-            applyCornerClasses();
-            checkWin();
-          }
-
-          return;
-        }
-
-        if (td.classList.contains('flagged')) {
-          td.classList.remove('flagged');
-          td.innerText = '';
-          currentFlags--;
-        } else if (!td.classList.contains('revealed')) {
-          td.classList.add('flagged');
-          // flags
-          td.innerHTML = '<img src="./static/flag1.jpg" alt="Flag" style="height: 100%; width: 100%;">';
-          currentFlags++;
-        }
-
-        animatePop(td);
-        updateTitle();
-        applyCornerClasses();
-        checkWin();
-      };
+      td.addEventListener("click", () => onLeftClick(r, c, td));
+      td.addEventListener("contextmenu", (e) => onRightClick(e, r, c, td));
 
       tr.appendChild(td);
-    });
+    }
     table.appendChild(tr);
-  });
+  }
 }
 
-// ======= Timer Functions =======
-function startTimer() {
-  gameState.startTime = Date.now();
-  const timerEl = document.getElementById('timer');
-  gameState.timerInterval = setInterval(() => {
-    const seconds = Math.floor((Date.now() - gameState.startTime) / 1000);
-    timerEl.textContent = `Time: ${seconds}s`;
-  }, 1000);
+function tdAt(r, c) {
+  const table = $("board");
+  return table?.rows?.[r]?.cells?.[c] ?? null;
 }
 
-function stopTimer() {
-  clearInterval(gameState.timerInterval);
-  gameState.timerInterval = null;
+function showCell(r, c) {
+  const td = tdAt(r, c);
+  if (!td) return;
+
+  const k = key(r, c);
+  if (revealed.has(k)) return;
+
+  revealed.add(k);
+  td.classList.add("revealed", "liquified-cell-text");
+
+  const cell = board[r][c];
+
+  // clear wrapper but keep it simple: overwrite cell content
+  // If you want wrapper corners visible, remove the next line.
+  // td.innerHTML = "";
+
+  if (cell.mine) {
+    td.innerHTML = `<img src="${ASSET_BOMB}" alt="💣" style="height:100%; width:100%;">`;
+  } else if (cell.value > 0) {
+    td.textContent = String(cell.value);
+  } else {
+    td.textContent = "";
+  }
+
+  animatePop(td);
 }
 
-// ======= Reveal All Mines When Game Ends =======
-function revealAllMines(board) {
-  const table = document.getElementById('board');
-  board.forEach((row, r) => {
-    row.forEach((cell, c) => {
-      const td = table.rows[r].cells[c];
-      if (cell.mine) {
-        const img = document.createElement('img');
-        // revealAllMines()
-        img.src = './static/Bmb1.jpg';
-        img.alt = 'Bomb';
-        td.innerHTML = '';
-        td.appendChild(img);
-        td.classList.add('revealed');
-        td.classList.add('liquified-cell-text');
-      }
-    });
-  });
+function setFlag(r, c, shouldFlag) {
+  const td = tdAt(r, c);
+  if (!td) return;
+
+  const k = key(r, c);
+  if (revealed.has(k)) return;
+
+  if (shouldFlag) {
+    flagged.add(k);
+    td.classList.add("flagged");
+    td.innerHTML = `<img src="${ASSET_FLAG}" alt="Flag" style="height:100%; width:100%;">`;
+  } else {
+    flagged.delete(k);
+    td.classList.remove("flagged");
+    td.textContent = "";
+    // restore wrapper corners if you want them always present:
+    // td.innerHTML = `<div class="cell-wrapper">...</div>`; // optional
+  }
+
+  animatePop(td);
+  updateMineCounter();
+  safeApplyCornerClasses();
 }
 
-// ======= Animate Cell Pop =======
-function animatePop(td) {
-  td.classList.add('cell-pop');
-  td.addEventListener('animationend', () => {
-    td.classList.remove('cell-pop');
-  }, { once: true });
-}
+// ---------- Gameplay ----------
+function floodReveal(startR, startC) {
+  const q = [{ r: startR, c: startC }];
 
-// ======= Flood Reveal for Empty Cells =======
-function floodReveal(r, c) {
-  const queue = [{ r, c }];
-  const rows = document.getElementById('board').rows;
+  while (q.length) {
+    const { r, c } = q.shift();
+    const k = key(r, c);
 
-  while (queue.length) {
-    const { r, c } = queue.shift();
-    const td = rows[r].cells[c];
-    const cellData = globalBoard[r][c];
+    if (revealed.has(k)) continue;
+    if (flagged.has(k)) continue;
 
-    if (td.classList.contains('revealed') || td.classList.contains('flagged')) continue;
+    showCell(r, c);
 
-    td.classList.add('revealed');
-    td.classList.add('liquified-cell-text');
-    td.innerText = cellData.value === 0 ? '' : cellData.value;
-    animatePop(td);
-
-    if (cellData.value === 0) {
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          const nr = r + dr, nc = c + dc;
-          if (nr >= 0 && nr < rows.length && nc >= 0 && nc < rows[0].cells.length) {
-            queue.push({ r: nr, c: nc });
-          }
-        }
+    const cell = board[r][c];
+    if (cell.value === 0) {
+      for (const n of neighbors(r, c)) {
+        const nk = key(n.r, n.c);
+        if (!revealed.has(nk) && !flagged.has(nk)) q.push(n);
       }
     }
   }
 }
 
+function revealAllMines() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (board[r][c].mine) {
+        const td = tdAt(r, c);
+        if (!td) continue;
+        td.classList.add("revealed", "liquified-cell-text");
+        td.innerHTML = `<img src="${ASSET_BOMB}" alt="💣" style="height:100%; width:100%;">`;
+      }
+    }
+  }
+}
 
-// ======= Win Check =======
-// ======= Win Check =======
 function checkWin() {
-  const rows = document.getElementById('board').rows;
-  let allRevealed = true;
+  // Win = all non-mine cells revealed
+  let revealedSafe = 0;
+  const totalSafe = ROWS * COLS - NUM_MINES;
 
-  for (let r = 0; r < globalBoard.length; r++) {
-    for (let c = 0; c < globalBoard[r].length; c++) {
-      const cell = globalBoard[r][c];
-      const td = rows[r].cells[c];
-      if (!cell.mine && !td.classList.contains('revealed')) {
-        allRevealed = false;
-        break;
-      }
-    }
+  for (const k of revealed) {
+    const { r, c } = parseKey(k);
+    if (!board[r][c].mine) revealedSafe++;
   }
 
-  if (allRevealed) {
+  if (revealedSafe >= totalSafe) {
     gameOver = true;
     stopTimer();
-    alert('Congratulations! You win!');
-    revealAllMines(globalBoard);
-
-    // Save the best time if it's a new best time
-    const finalTime = Math.floor((Date.now() - gameState.startTime) / 1000); // Time in seconds
-    const nickname = document.getElementById("nickname-input").value.trim().toUpperCase();
-
-    if (nickname.length === 3) {
-      saveBestTime(nickname, finalTime);
-    }
-
-    setTimeout(resetToStart, 2000);
+    revealAllMines();
+    // Telegram webview: alerts are meh, but keep it simple for now
+    setTimeout(() => alert("Congratulations! You win!"), 50);
+    setTimeout(resetToStart, 1500);
   }
 }
 
-// ======= Update Best Times Table =======
-function updateBestTimesTable() {
-  const bestTimesTable = document.getElementById('top-times');
-  const bestTimes = JSON.parse(localStorage.getItem('bestTimes')) || [];
+function chordReveal(r, c) {
+  // If cell is revealed and number of flagged neighbors matches value, reveal remaining neighbors
+  const td = tdAt(r, c);
+  if (!td) return;
 
-  // Clear the current table
-  bestTimesTable.innerHTML = '';
+  const k = key(r, c);
+  if (!revealed.has(k)) return;
 
-  // Add header row
-  const headerRow = document.createElement('tr');
-  headerRow.innerHTML = `
-    <th>Nickname</th>
-    <th>Time (s)</th>
-  `;
-  bestTimesTable.appendChild(headerRow);
+  const val = board[r][c].value;
+  if (!val || val <= 0) return;
 
-  // Add best times rows
-  bestTimes.forEach(entry => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${entry.nickname}</td>
-      <td>${entry.time}s</td>
-    `;
-    bestTimesTable.appendChild(row);
-  });
+  let flaggedCount = 0;
+  const toReveal = [];
+
+  for (const n of neighbors(r, c)) {
+    const nk = key(n.r, n.c);
+    if (flagged.has(nk)) flaggedCount++;
+    else if (!revealed.has(nk)) toReveal.push(n);
+  }
+
+  if (flaggedCount === val) {
+    for (const n of toReveal) {
+      if (board[n.r][n.c].mine) {
+        // player messed up flags
+        gameOver = true;
+        stopTimer();
+        revealAllMines();
+        setTimeout(() => alert("Game Over! You revealed a mine!"), 50);
+        setTimeout(resetToStart, 1500);
+        return;
+      }
+      if (board[n.r][n.c].value === 0) floodReveal(n.r, n.c);
+      else showCell(n.r, n.c);
+    }
+    safeApplyCornerClasses();
+    checkWin();
+  }
 }
 
+// ---------- Click handlers ----------
+function onLeftClick(r, c, td) {
+  if (gameOver) return;
+  const k = key(r, c);
+  if (revealed.has(k)) return;
+  if (flagged.has(k)) return;
 
-// ======= Reset to Start Screen =======
-function resetToStart() {
-  document.getElementById('board').style.display = 'none';
-  document.getElementById('mine-count').style.display = 'none';
-  document.getElementById('start-btn').style.display = 'block';
-  document.getElementById('nickname-input').style.display = 'none'; // <-- Hide nickname input
-  document.getElementById('top-times').style.display = 'table';
-  document.getElementById('animated-title').style.display = 'block';
-
-  document.querySelector('.board-container').classList.remove('game-active');
-
-  // Optional: clear nickname input
-  const nicknameInput = document.getElementById('nickname-input');
-  if (nicknameInput) nicknameInput.value = '';
-}
-
-function updateMineCount(count) {
-  document.getElementById('mine-count').innerHTML = `<img src="bmb1.png" alt="bomb" style="height: 20px; vertical-align: middle;"> ${count}`;
-}
-// ======= Update Mines Remaining in Title =======
-function updateTitle() {
-  const title = document.getElementById('mine-count');
-  title.innerHTML = `
-    <img src="./static/Bmb1.jpg" alt="💣" 
-    style="width: 48px; height: 48px; 
-    vertical-align: middle; margin-right: 10px;">
-    ${totalMines - currentFlags}`;
-}
-const totalFrames = 12;
-let currentFrame = 1;
-
-function animateTitle() {
-  const titleImg = document.getElementById('animated-title');
-  currentFrame = (currentFrame % totalFrames) + 1;
-  // animated logo frames
-  titleImg.src = `./static/logo/frame${currentFrame}.jpg`;
-  
-}
-
-// Start animation at 10 frames per second (100ms per frame)
-setInterval(animateTitle, 500);
-const startBtn = document.getElementById('start-btn');
-const nicknameInput = document.getElementById('nickname-input');
-
-// When the Start button is clicked
-startBtn.addEventListener('click', () => {
-  startBtn.style.display = 'none';
-  nicknameInput.style.display = 'block';
-  nicknameInput.focus();
-});
-
-nicknameInput.addEventListener('input', () => {
-  const name = nicknameInput.value.trim().toUpperCase();
-
-  // Optional: enforce only letters (up to 3 characters)
-  if (!/^[A-Z]{0,3}$/.test(name)) {
-    nicknameInput.value = name.slice(0, -1);
+  // First click: generate a safe board and keep click cell as 0
+  if (firstClick) {
+    firstClick = false;
+    board = generateBoardSafe(r, c);
+    startTimer();
+    // Rebuild table to reset any DOM text/flags from placeholder
+    buildTable();
+    updateMineCounter();
+    // Now reveal
+    floodReveal(r, c);
+    safeApplyCornerClasses();
+    checkWin();
     return;
   }
 
-  // Automatically submit when nickname is 3 characters long
-  if (name.length === 3) {
-    if (event.key === 'Enter') {
-    nicknameInput.style.display = 'none';
-
-    // Show nickname in top-right corner
-    const nicknameDisplay = document.getElementById('nickname-fixed');
-    nicknameDisplay.textContent = name;
-    nicknameDisplay.style.display = 'block';
- 
-    startGame(); // Start the game!
+  const cell = board[r][c];
+  if (cell.mine) {
+    gameOver = true;
+    stopTimer();
+    td.innerHTML = `<img src="${ASSET_BOMB}" alt="💣" style="height:100%; width:100%;">`;
+    td.classList.add("revealed", "liquified-cell-text");
+    animatePop(td);
+    revealAllMines();
+    setTimeout(() => alert("Game Over! You clicked a mine!"), 50);
+    setTimeout(resetToStart, 1500);
+    return;
   }
-}});
 
-// Handle "Enter" key press event
-nicknameInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
-    const name = nicknameInput.value.trim().toUpperCase();
-    
-    if (name.length === 3) {
-      nicknameInput.style.display = 'none';
+  if (cell.value === 0) floodReveal(r, c);
+  else showCell(r, c);
 
-      // Show nickname in top-right corner
-      const nicknameDisplay = document.getElementById('nickname-fixed');
-      nicknameDisplay.textContent = name;
-      nicknameDisplay.style.display = 'block';
+  safeApplyCornerClasses();
+  checkWin();
+}
 
-      startGame(); // Start the game!
-    } else {
-      alert('Please enter a 3-letter nickname.');
-    }
+function onRightClick(e, r, c, td) {
+  e.preventDefault();
+  if (gameOver) return;
+
+  const k = key(r, c);
+
+  // If revealed: chord behavior
+  if (revealed.has(k)) {
+    chordReveal(r, c);
+    return;
   }
+
+  // Toggle flag
+  setFlag(r, c, !flagged.has(k));
+}
+
+// ---------- Start/Reset ----------
+function startGame() {
+  gameOver = false;
+  firstClick = true;
+  revealed = new Set();
+  flagged = new Set();
+  stopTimer();
+
+  // UI (keep your existing elements; only hide/show what exists)
+  setVisible($("start-btn"), false);
+  setVisible($("animated-title"), false);
+  setVisible($("mine-count"), true, "block");
+  setVisible($("board"), true, "table");
+
+  document.querySelector(".board-container")?.classList?.add("game-active");
+
+  board = generateBoardInitial();
+  buildTable();
+  updateMineCounter();
+  safeApplyCornerClasses();
+
+  const timerEl = $("timer");
+  if (timerEl) timerEl.textContent = "Time: 0s";
+}
+
+function resetToStart() {
+  gameOver = false;
+  firstClick = true;
+  stopTimer();
+
+  setVisible($("board"), false);
+  setVisible($("mine-count"), false);
+  setVisible($("start-btn"), true, "block");
+  setVisible($("animated-title"), true, "block");
+
+  document.querySelector(".board-container")?.classList?.remove("game-active");
+}
+
+// ---------- Animated title ----------
+let currentFrame = 1;
+function animateTitle() {
+  const img = $("animated-title");
+  if (!img) return;
+  currentFrame = (currentFrame % LOGO_FRAMES) + 1;
+  img.src = `${LOGO_FRAME_PATH}${currentFrame}.jpg`;
+}
+setInterval(animateTitle, LOGO_INTERVAL_MS);
+
+// ---------- Boot ----------
+window.addEventListener("load", () => {
+  const startBtn = $("start-btn");
+  if (startBtn) startBtn.addEventListener("click", startGame);
+
+  // initial UI state
+  setVisible($("board"), false);
+  setVisible($("mine-count"), false);
+  setVisible($("animated-title"), true, "block");
+  setVisible($("start-btn"), true, "block");
+
+  // If you want the board pre-built for faster first start:
+  // board = generateBoardInitial(); buildTable();
 });
-
-
-nicknameInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    const name = nicknameInput.value.trim();
-    if (name.length === 3) {
-      nicknameInput.style.display = 'none';
-      console.log("Nickname:", name);
-      startGame(); // Start game here
-    } else {
-      alert("Please enter a 3-letter nickname.");
-    }
-  }
-});
-window.onload = () => {
-  const nicknameInput = document.getElementById('nickname-input');
-  if (nicknameInput) {
-    nicknameInput.value = '';
-  }
-  updateBestTimesTable();
-
-};
-function saveBestTime(nickname, time) {
-  const bestTimes = JSON.parse(localStorage.getItem('bestTimes')) || [];
-
-  const existing = bestTimes.find(entry => entry.nickname === nickname);
-  if (existing) {
-    if (time < existing.time) {
-      existing.time = time;
-    }
-  } else {
-    bestTimes.push({ nickname, time });
-  }
-
-  bestTimes.sort((a, b) => a.time - b.time);
-  bestTimes.splice(10); // Optional: limit to top 10 scores
-  localStorage.setItem('bestTimes', JSON.stringify(bestTimes));
-
-  updateBestTimesTable();
-}
-
-function updateBestTimesTable() {
-  const table = document.getElementById('top-times');
-  const bestTimes = JSON.parse(localStorage.getItem('bestTimes')) || [];
-
-  // Clear existing rows
-  table.innerHTML = '';
-
-  // Header
-  const header = document.createElement('tr');
-  header.innerHTML = `<th>Place</th><th>Name</th><th>Time</th>`;
-  table.appendChild(header);
-
-  bestTimes.forEach((entry, index) => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${getPlaceText(index + 1)}</td>
-      <td>${entry.nickname}</td>
-      <td>${formatTime(entry.time)}</td>
-    `;
-    table.appendChild(row);
-  });
-}
-
-// Helper function to format place as 1st, 2nd, 3rd, etc.
-function getPlaceText(n) {
-  if (n === 1) return '1';
-  if (n === 2) return '2';
-  if (n === 3) return '3';
-  if (n === 4) return '4';
-  if (n === 5) return '5';
-  if (n === 6) return '6';
-  if (n === 7) return '7';
-  if (n === 8) return '8';
-  const suffix = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (suffix[(v - 20) % 10] || suffix[v] || suffix[0]);
-}
-function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-function triggerCRTEffect(duration = 300) {
-  const crt = document.getElementById('crt-screen');
-  if (!crt) return;
-
-  // Show the CRT overlay
-  crt.style.display = 'block';
-
-  // Hide it after the specified duration
-  setTimeout(() => {
-    crt.style.display = 'none';
-  }, duration);
-}
