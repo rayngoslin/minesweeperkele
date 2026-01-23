@@ -2,8 +2,8 @@
 const MULTIPLIER = 5; // Change this value to make the field larger or smaller
 
 // Set the number of rows, columns, and mines
-const ROWS = 30; // Adjusted for a usable mobile aspect ratio
-const COLS = 20; // Adjusted for a usable mobile aspect ratio
+const ROWS = 40; // Taller field
+const COLS = 15; // Narrower field
 const NUM_MINES = 150; // 15% of the total cells
 
 let board = [];
@@ -50,6 +50,15 @@ function renderBoard() {
       boardElement.appendChild(cellElement);
     });
   });
+
+  updateBombCount(); // Update the HUD after rendering the board
+}
+
+// Update the bomb count in the HUD
+function updateBombCount() {
+  const bombCountElement = document.getElementById('bomb-count');
+  const flaggedCells = board.flat().filter((cell) => cell.flagged).length;
+  bombCountElement.textContent = `Bombs: ${NUM_MINES - flaggedCells}`;
 }
 
 // Handle cell click
@@ -158,6 +167,7 @@ function toggleFlag(r, c) {
   if (board[r][c].revealed) return;
 
   board[r][c].flagged = !board[r][c].flagged;
+  updateBombCount(); // Update the HUD after toggling a flag
 }
 
 // Initialize the game
@@ -188,4 +198,11 @@ gameContainer.addEventListener('touchend', (e) => {
     gameContainer.style.transform = `scale(${scale})`;
   }
   lastTouchEnd = now;
+});
+
+// Toggle between "Flag" and "Reveal" modes
+document.getElementById('toggle-mode').addEventListener('click', () => {
+  mode = mode === 'reveal' ? 'flag' : 'reveal';
+  const toggleButton = document.getElementById('toggle-mode');
+  toggleButton.textContent = mode === 'reveal' ? 'Switch to Flag Mode' : 'Switch to Reveal Mode';
 });
