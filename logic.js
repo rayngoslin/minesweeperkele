@@ -4,7 +4,7 @@ const MULTIPLIER = 5; // Change this value to make the field larger or smaller
 // Set the number of rows, columns, and mines
 const ROWS = 40; // Taller field
 const COLS = 15; // Narrower field
-const NUM_MINES = 150; // 15% of the total cells
+const NUM_MINES = 100; // 15% of the total cells
 
 let board = [];
 let revealedCells = 0;
