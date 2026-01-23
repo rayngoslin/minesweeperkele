@@ -21,8 +21,6 @@ function createBoard() {
       value: 0,
     }))
   );
-
-  // Place mines after the first click
 }
 
 // Render the board
@@ -45,6 +43,7 @@ function renderBoard() {
       cellElement.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         toggleFlag(r, c);
+        renderBoard();
       });
 
       boardElement.appendChild(cellElement);
@@ -63,21 +62,31 @@ function updateBombCount() {
 
 // Handle cell click
 function handleCellClick(r, c) {
-  if (board[r][c].revealed || board[r][c].flagged) return;
+  if (board[r][c].flagged) return; // Don't reveal flagged cells
 
   if (firstClick) {
     firstClick = false;
     placeMines(r, c); // Ensure the first click is safe
     calculateValues();
+
+    // Zoom in to the clicked cell
+    zoomToCell(r, c);
   }
 
-  if (mode === 'reveal') {
-    revealCell(r, c);
-  } else if (mode === 'flag') {
-    toggleFlag(r, c);
-  }
-
+  revealCell(r, c);
   renderBoard();
+}
+
+// Zoom to the clicked cell
+function zoomToCell(r, c) {
+  const gameContainer = document.getElementById('game-container');
+  const cellSize = 30; // Assuming each cell is 30px
+  const offsetX = c * cellSize + cellSize / 2;
+  const offsetY = r * cellSize + cellSize / 2;
+
+  // Center the clicked cell in the viewport
+  gameContainer.style.transform = `scale(2) translate(${-offsetX}px, ${-offsetY}px)`;
+  gameContainer.style.transition = 'transform 0.5s ease'; // Smooth zoom
 }
 
 // Place mines, avoiding the first clicked cell
@@ -152,14 +161,31 @@ function floodReveal(r, c) {
     [1, -1], [1, 0], [1, 1],
   ];
 
-  directions.forEach(([dr, dc]) => {
-    const nr = r + dr;
-    const nc = c + dc;
+  const stack = [[r, c]]; // Use a stack for iterative flood fill
 
-    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !board[nr][nc].revealed) {
-      revealCell(nr, nc);
+  while (stack.length > 0) {
+    const [currentR, currentC] = stack.pop();
+
+    if (
+      currentR < 0 || currentR >= ROWS ||
+      currentC < 0 || currentC >= COLS ||
+      board[currentR][currentC].revealed ||
+      board[currentR][currentC].flagged
+    ) {
+      continue; // Skip invalid or already revealed cells
     }
-  });
+
+    board[currentR][currentC].revealed = true;
+    revealedCells++;
+
+    if (board[currentR][currentC].value === 0) {
+      directions.forEach(([dr, dc]) => {
+        const neighborR = currentR + dr;
+        const neighborC = currentC + dc;
+        stack.push([neighborR, neighborC]);
+      });
+    }
+  }
 }
 
 // Toggle a flag on a cell
@@ -170,7 +196,28 @@ function toggleFlag(r, c) {
   updateBombCount(); // Update the HUD after toggling a flag
 }
 
+// Reveal all mines (game over)
+function revealAllMines() {
+  board.forEach((row) => {
+    row.forEach((cell) => {
+      if (cell.mine) {
+        cell.revealed = true;
+      }
+    });
+  });
+
+  renderBoard();
+}
+
+// Set initial zoom level to show the entire field
+function initializeZoom() {
+  const gameContainer = document.getElementById('game-container');
+  gameContainer.style.transform = 'scale(0.5)'; // Zoom out to show the entire field
+  gameContainer.style.transition = 'transform 0.5s ease'; // Smooth zoom
+}
+
 // Initialize the game
+initializeZoom();
 createBoard();
 renderBoard();
 
