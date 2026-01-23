@@ -16,7 +16,7 @@ body {
 
 #board {
   display: grid;
-  grid-template-columns: repeat(10, 30px);
+  grid-template-columns: repeat(98, 30px); /* Replace 98 with the new COLS value */
   gap: 2px;
   margin: 20px auto;
 }

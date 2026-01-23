@@ -1,6 +1,10 @@
-const ROWS = 10;
-const COLS = 10;
-const NUM_MINES = 20;
+// Adjust the multiplier to scale the field size
+const MULTIPLIER = 5; // Change this value to make the field larger or smaller
+
+// Calculate rows, columns, and mines based on the aspect ratio
+const ROWS = Math.round(9 * MULTIPLIER); // Height
+const COLS = Math.round(19.5 * MULTIPLIER); // Width
+const NUM_MINES = Math.floor((ROWS * COLS) * 0.15); // 15% of the total cells
 
 let board = [];
 let revealedCells = 0;
