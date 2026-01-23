@@ -4,6 +4,7 @@ const NUM_MINES = 20;
 
 let board = [];
 let revealedCells = 0;
+let mode = 'reveal'; // Default mode is "Reveal"
 
 function createBoard() {
   board = Array.from({ length: ROWS }, () =>
@@ -67,24 +68,52 @@ function renderBoard() {
   }
 }
 
+// Get the toggle button
+const toggleButton = document.getElementById('toggle-mode');
+
+// Add an event listener to toggle between "Flag" and "Reveal"
+toggleButton.addEventListener('click', () => {
+  if (mode === 'reveal') {
+    mode = 'flag';
+    toggleButton.textContent = 'Switch to Reveal Mode';
+  } else {
+    mode = 'reveal';
+    toggleButton.textContent = 'Switch to Flag Mode';
+  }
+});
+
+// Modify the cell click handler to respect the mode
 function handleCellClick(r, c) {
   if (board[r][c].revealed) return;
 
-  board[r][c].revealed = true;
-  revealedCells++;
+  if (mode === 'reveal') {
+    // Reveal the cell
+    board[r][c].revealed = true;
+    revealedCells++;
 
-  if (board[r][c].mine) {
-    alert('Game Over!');
-    revealAllMines();
-    return;
-  }
+    if (board[r][c].mine) {
+      alert('Game Over!');
+      revealAllMines();
+      return;
+    }
 
-  if (board[r][c].value === 0) {
-    floodReveal(r, c);
-  }
+    if (board[r][c].value === 0) {
+      floodReveal(r, c);
+    }
 
-  if (revealedCells === ROWS * COLS - NUM_MINES) {
-    alert('You Win!');
+    if (revealedCells === ROWS * COLS - NUM_MINES) {
+      alert('You Win!');
+    }
+  } else if (mode === 'flag') {
+    // Toggle flag on the cell
+    const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+    if (cell.classList.contains('flagged')) {
+      cell.classList.remove('flagged');
+      cell.textContent = '';
+    } else {
+      cell.classList.add('flagged');
+      cell.textContent = '🚩';
+    }
   }
 
   renderBoard();

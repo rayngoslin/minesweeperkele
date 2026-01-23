@@ -36,6 +36,12 @@ body {
   background-color: #fff;
 }
 
+.cell.flagged {
+  background-color: yellow;
+  color: red;
+  font-weight: bold;
+}
+
 #controls {
   margin-top: 10px;
 }
