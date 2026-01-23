@@ -10,13 +10,22 @@ body {
   background-color: #f4f4f4;
 }
 
+/* Enable zooming for the game container */
+#game-container {
+  touch-action: none; /* Disable default touch gestures */
+  overflow: hidden; /* Prevent content from overflowing */
+  transform-origin: center; /* Set the zoom origin */
+  user-select: none; /* Prevent text selection */
+}
+
 #game-container {
   text-align: center;
 }
 
+/* Style for the board */
 #board {
   display: grid;
-  grid-template-columns: repeat(98, 30px); /* Replace 98 with the new COLS value */
+  grid-template-columns: repeat(20, 30px); /* Adjusted for COLS */
   gap: 2px;
   margin: 20px auto;
 }

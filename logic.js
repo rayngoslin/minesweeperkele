@@ -1,10 +1,10 @@
 // Adjust the multiplier to scale the field size
 const MULTIPLIER = 5; // Change this value to make the field larger or smaller
 
-// Calculate rows, columns, and mines based on the aspect ratio
-const ROWS = Math.round(9 * MULTIPLIER); // Height
-const COLS = Math.round(19.5 * MULTIPLIER); // Width
-const NUM_MINES = Math.floor((ROWS * COLS) * 0.15); // 15% of the total cells
+// Set the number of rows, columns, and mines
+const ROWS = 30; // Adjusted for a usable mobile aspect ratio
+const COLS = 20; // Adjusted for a usable mobile aspect ratio
+const NUM_MINES = 150; // 15% of the total cells
 
 let board = [];
 let revealedCells = 0;
@@ -160,32 +160,32 @@ function toggleFlag(r, c) {
   board[r][c].flagged = !board[r][c].flagged;
 }
 
-// Reveal all mines (game over)
-function revealAllMines() {
-  board.forEach((row) => {
-    row.forEach((cell) => {
-      if (cell.mine) {
-        cell.revealed = true;
-      }
-    });
-  });
-
-  renderBoard();
-}
-
 // Initialize the game
-document.getElementById('toggle-mode').addEventListener('click', () => {
-  mode = mode === 'reveal' ? 'flag' : 'reveal';
-  document.getElementById('toggle-mode').textContent =
-    mode === 'reveal' ? 'Switch to Flag Mode' : 'Switch to Reveal Mode';
-});
-
-document.getElementById('restart-btn').addEventListener('click', () => {
-  firstClick = true;
-  revealedCells = 0;
-  createBoard();
-  renderBoard();
-});
-
 createBoard();
 renderBoard();
+
+// Add zooming functionality
+let scale = 1; // Initial zoom level
+let lastTouchEnd = 0; // For double-tap detection
+
+const gameContainer = document.getElementById('game-container');
+
+// Handle pinch-to-zoom
+gameContainer.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const zoomSpeed = 0.1;
+  scale += e.deltaY < 0 ? zoomSpeed : -zoomSpeed;
+  scale = Math.min(Math.max(0.5, scale), 3); // Limit zoom between 0.5x and 3x
+  gameContainer.style.transform = `scale(${scale})`;
+});
+
+// Handle double-tap to zoom
+gameContainer.addEventListener('touchend', (e) => {
+  const now = new Date().getTime();
+  if (now - lastTouchEnd <= 300) {
+    // Double-tap detected
+    scale = scale === 1 ? 2 : 1; // Toggle between 1x and 2x zoom
+    gameContainer.style.transform = `scale(${scale})`;
+  }
+  lastTouchEnd = now;
+});
