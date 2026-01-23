@@ -1,0 +1,41 @@
+/* General styles */
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background-color: #f4f4f4;
+}
+
+#game-container {
+  text-align: center;
+}
+
+#board {
+  display: grid;
+  grid-template-columns: repeat(10, 30px);
+  gap: 2px;
+  margin: 20px auto;
+}
+
+.cell {
+  width: 30px;
+  height: 30px;
+  background-color: #ddd;
+  border: 1px solid #ccc;
+  text-align: center;
+  line-height: 30px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.cell.revealed {
+  background-color: #fff;
+}
+
+#controls {
+  margin-top: 10px;
+}
