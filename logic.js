@@ -2,17 +2,14 @@
 const MULTIPLIER = 5; // Change this value to make the field larger or smaller
 
 // Set the number of rows, columns, and mines
-const ROWS = 16; // Number of rows
-const COLS = 30; // Number of columns
-const NUM_MINES = 99; // Number of mines (15% of the field)
+const ROWS = 15; // Number of rows
+const COLS = 45; // Number of columns
+const NUM_MINES = Math.floor(ROWS * COLS * 0.15); // Number of mines (15% of the field)
 
 let board = [];
 let revealedCells = 0;
 let mode = 'reveal'; // Default mode is "Reveal"
 let firstClick = true; // Track if it's the first click
-let scale = 1; // Initial zoom level
-const MIN_SCALE = 0.2; // Minimum zoom (show the entire field)
-const MAX_SCALE = 3; // Maximum zoom (5x5 field of view)
 
 // Create the game board
 function createBoard() {
@@ -65,63 +62,16 @@ function updateBombCount() {
 
 // Handle cell click
 function handleCellClick(r, c) {
-  if (board[r][c].flagged) return; // Don't reveal flagged cells
+  if (board[r][c].flagged || board[r][c].revealed) return; // Ignore flagged or already revealed cells
 
   if (firstClick) {
     firstClick = false;
     placeMines(r, c); // Ensure the first click is safe
     calculateValues();
-
-    // Zoom in to the clicked cell
-    zoomToCell(r, c);
   }
 
   revealCell(r, c);
   renderBoard();
-}
-
-// Zoom to the clicked cell
-function zoomToCell(r, c) {
-  const gameContainer = document.getElementById('game-container');
-  const cellSize = 30; // Assuming each cell is 30px
-  const containerWidth = gameContainer.offsetWidth;
-  const containerHeight = gameContainer.offsetHeight;
-
-  // Calculate the offsets to center the clicked cell
-  const offsetX = (c * cellSize + cellSize / 2) - containerWidth / (2 * scale);
-  const offsetY = (r * cellSize + cellSize / 2) - containerHeight / (2 * scale);
-
-  // Apply the zoom and translation
-  gameContainer.style.transform = `scale(${scale}) translate(${-offsetX}px, ${-offsetY}px)`;
-  gameContainer.style.transition = 'transform 0.5s ease'; // Smooth zoom
-}
-
-// Add zooming functionality
-function initializeZoom() {
-  const gameContainer = document.getElementById('game-container');
-
-  // Handle pinch-to-zoom and mouse wheel zoom
-  gameContainer.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const zoomSpeed = 0.1;
-    scale += e.deltaY < 0 ? zoomSpeed : -zoomSpeed;
-    scale = Math.min(Math.max(MIN_SCALE, scale), MAX_SCALE); // Limit zoom between MIN_SCALE and MAX_SCALE
-    gameContainer.style.transform = `scale(${scale})`;
-    gameContainer.style.transition = 'transform 0.2s ease'; // Smooth zoom
-  });
-
-  // Handle double-tap to zoom
-  let lastTouchEnd = 0;
-  gameContainer.addEventListener('touchend', (e) => {
-    const now = new Date().getTime();
-    if (now - lastTouchEnd <= 300) {
-      // Double-tap detected
-      scale = scale === 1 ? MAX_SCALE : 1; // Toggle between 1x and MAX_SCALE zoom
-      gameContainer.style.transform = `scale(${scale})`;
-      gameContainer.style.transition = 'transform 0.2s ease'; // Smooth zoom
-    }
-    lastTouchEnd = now;
-  });
 }
 
 // Place mines, avoiding the first clicked cell
@@ -245,6 +195,5 @@ function revealAllMines() {
 }
 
 // Initialize the game
-initializeZoom();
 createBoard();
 renderBoard();
