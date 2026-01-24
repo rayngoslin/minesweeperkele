@@ -5,34 +5,62 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Telegram Minesweeper</title>
 
-  <!-- Dynamic cache-busted asset loader -->
+  <script>
+    /**
+     * Telegram Mobile WebView cache-buster for fixed bot Mini App URLs.
+     *
+     * Problem: TG Mobile caches the HTML itself. If HTML is cached, it keeps pointing to old JS/CSS.
+     * Fix: On every open, redirect (replace) to the same page with a unique query param.
+     *
+     * - Does NOT require renaming files
+     * - Does NOT require changing bot URL
+     * - Works even if TG serves an old cached HTML, because the redirect runs anyway
+     */
+
+    (function () {
+      const isTelegram = !!(window.Telegram && window.Telegram.WebApp);
+
+      // Only do this aggressive cache-bust inside Telegram.
+      if (!isTelegram) return;
+
+      const url = new URL(window.location.href);
+
+      // If we already have a cache-bust param, don't loop.
+      if (url.searchParams.has("tgcb")) return;
+
+      // Create a per-open unique value (enough to break TG's cache key)
+      const cb = Date.now().toString(36);
+
+      url.searchParams.set("tgcb", cb);
+
+      // IMPORTANT: replace so it doesn't spam history
+      window.location.replace(url.toString());
+    })();
+  </script>
+
+  <!-- Load assets with the same cache-bust token, so TG can't reuse old JS/CSS -->
   <link rel="stylesheet" id="css-link">
   <script id="js-link" defer></script>
 
   <script>
-    /*
-      🔁 CHANGE ONLY THIS NUMBER ON EACH DEPLOY
-      This forces Telegram Mobile to reload JS/CSS.
-    */
-    const BUILD = 152;  // <-- bump this when you update anything
+    (function () {
+      const url = new URL(window.location.href);
+      const cb = url.searchParams.get("tgcb") || "nocb";
 
-    const css = document.getElementById("css-link");
-    const js  = document.getElementById("js-link");
-
-    css.href = `style.css?build=${BUILD}`;
-    js.src   = `logic.js?build=${BUILD}`;
+      // If you want: keep filenames stable, bust via query
+      document.getElementById("css-link").href = `style.css?tgcb=${cb}`;
+      document.getElementById("js-link").src   = `logic.js?tgcb=${cb}`;
+    })();
   </script>
 </head>
 
 <body>
-  <!-- HUD -->
   <div id="hud">
     <span id="bomb-count">Bombs: 0</span>
     <button id="toggle-mode">Switch to Flag Mode</button>
     <button id="restart-btn">Restart</button>
   </div>
 
-  <!-- Game -->
   <div id="game-container">
     <h1>Telegram Minesweeper</h1>
     <div id="board"></div>
