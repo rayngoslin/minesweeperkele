@@ -1,86 +1,66 @@
-const MULTIPLIER = 5;
+// ===== Minesweeper (fresh, stable, mobile+desktop) =====
 
 const ROWS = 25;
 const COLS = 50;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
-let board = [];
-let revealedCells = 0;
-let mode = "reveal";
-let minesPlaced = false;
+let board;
+let revealedCount;
+let mode = "reveal";      // "reveal" or "flag"
+let minesPlaced = false;  // place mines on first REVEAL action
 let gameOver = false;
 
 // UI
-const boardElement = document.getElementById("board");
-const bombCountElement = document.getElementById("bomb-count");
+const boardEl = document.getElementById("board");
+const bombEl = document.getElementById("bomb-count");
+const toggleBtn = document.getElementById("toggle-mode");
 const restartBtn = document.getElementById("restart-btn");
-const toggleModeBtn = document.getElementById("toggle-mode");
 
-// Double-tap
-const DOUBLE_TAP_MS = 260;
-let lastTapTime = 0;
-let lastTapR = -1;
-let lastTapC = -1;
+// Double-tap handling (prevents single firing twice on mobile)
+const DOUBLE_MS = 240;
+let pendingTap = null;     // { r, c, t }
+let pendingTimer = null;
 
 const DIR8 = [
-  [-1, -1], [-1, 0], [-1, 1],
-  [ 0, -1],          [ 0, 1],
-  [ 1, -1], [ 1, 0], [ 1, 1],
+  [-1,-1], [-1,0], [-1,1],
+  [ 0,-1],         [ 0,1],
+  [ 1,-1], [ 1,0], [ 1,1],
 ];
 
-function inBounds(r, c) {
-  return r >= 0 && r < ROWS && c >= 0 && c < COLS;
-}
+function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 
-function forEachNeighbor(r, c, fn) {
-  for (const [dr, dc] of DIR8) {
-    const nr = r + dr, nc = c + dc;
-    if (inBounds(nr, nc)) fn(nr, nc);
+function forEachNeighbor(r,c,fn){
+  for (const [dr,dc] of DIR8){
+    const nr=r+dr, nc=c+dc;
+    if (inBounds(nr,nc)) fn(nr,nc);
   }
 }
 
-function countFlaggedNeighbors(r, c) {
-  let n = 0;
-  forEachNeighbor(r, c, (nr, nc) => {
-    if (board[nr][nc].flagged) n++;
-  });
-  return n;
-}
-
-function hiddenUnflaggedNeighbors(r, c) {
-  const out = [];
-  forEachNeighbor(r, c, (nr, nc) => {
-    const cell = board[nr][nc];
-    if (!cell.revealed && !cell.flagged) out.push([nr, nc]);
-  });
-  return out;
-}
-
-// ===== Board =====
-function createBoard() {
-  board = Array.from({ length: ROWS }, () =>
-    Array.from({ length: COLS }, () => ({
-      mine: false,
-      revealed: false,
-      flagged: false,
-      value: 0,
+function createBoard(){
+  board = Array.from({length: ROWS}, () =>
+    Array.from({length: COLS}, () => ({
+      mine:false,
+      revealed:false,
+      flagged:false,
+      value:0,
     }))
   );
-  revealedCells = 0;
+  revealedCount = 0;
   minesPlaced = false;
   gameOver = false;
 }
 
-function placeMinesSafe(sr, sc) {
+function placeMinesSafe(sr, sc){
+  // Safe zone 3x3
   const safe = new Set();
-  for (let r = sr - 1; r <= sr + 1; r++) {
-    for (let c = sc - 1; c <= sc + 1; c++) {
-      if (inBounds(r, c)) safe.add(`${r},${c}`);
+  for (let r=sr-1;r<=sr+1;r++){
+    for (let c=sc-1;c<=sc+1;c++){
+      if (inBounds(r,c)) safe.add(`${r},${c}`);
     }
   }
 
   let placed = 0;
-  while (placed < NUM_MINES) {
+  while (placed < NUM_MINES){
     const r = (Math.random() * ROWS) | 0;
     const c = (Math.random() * COLS) | 0;
     if (safe.has(`${r},${c}`)) continue;
@@ -90,266 +70,271 @@ function placeMinesSafe(sr, sc) {
   }
 }
 
-function calculateValues() {
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+function calcValues(){
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
       if (board[r][c].mine) continue;
-      let v = 0;
-      forEachNeighbor(r, c, (nr, nc) => {
-        if (board[nr][nc].mine) v++;
-      });
+      let v=0;
+      forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].mine) v++; });
       board[r][c].value = v;
     }
   }
 }
 
-// ===== Render =====
-function updateBombCount() {
-  let flagged = 0;
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (board[r][c].flagged) flagged++;
+function countFlags(){
+  let f=0;
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
+      if (board[r][c].flagged) f++;
     }
   }
-  bombCountElement.textContent = `Bombs: ${NUM_MINES - flagged}`;
+  return f;
 }
 
-function renderBoard() {
-  // Keep CSS & logic synced even if CSS is wrong
-  boardElement.style.display = "grid";
-  boardElement.style.gridTemplateColumns = `repeat(${COLS}, 30px)`;
+function updateBombHud(){
+  bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
+}
 
-  boardElement.innerHTML = "";
+function buildGrid(){
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
+  boardEl.innerHTML = "";
 
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const cell = board[r][c];
-      const el = document.createElement("div");
-      el.classList.add("cell");
-      el.dataset.r = String(r);
-      el.dataset.c = String(c);
+  const frag = document.createDocumentFragment();
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
+      const d = document.createElement("div");
+      d.className = "cell";
+      d.dataset.r = String(r);
+      d.dataset.c = String(c);
 
-      if (cell.revealed) {
-        el.classList.add("revealed");
-        el.textContent = cell.mine ? "💣" : (cell.value || "");
-      } else if (cell.flagged) {
-        el.classList.add("flagged");
-        el.textContent = "🚩";
-      }
-
-      // Desktop click
-      el.addEventListener("click", onCellClick);
-
-      // Mobile touch
-      el.addEventListener("touchend", onCellTouchEnd, { passive: false });
-
-      // Optional desktop right-click flag
-      el.addEventListener("contextmenu", (e) => {
+      // Desktop right click: flag (doesn't change mode)
+      d.addEventListener("contextmenu", (e)=>{
         e.preventDefault();
         if (gameOver) return;
-        toggleFlag(r, c);
-        renderBoard();
+        toggleFlag(r,c);
+        renderCell(d, r, c);
+        updateBombHud();
       });
 
-      boardElement.appendChild(el);
+      // Pointer up: unified input (mouse/touch)
+      d.addEventListener("pointerup", onPointerUp);
+
+      frag.appendChild(d);
     }
   }
-
-  updateBombCount();
+  boardEl.appendChild(frag);
 }
 
-// ===== End states =====
-function revealAllMines() {
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+function renderCell(el, r, c){
+  const cell = board[r][c];
+  el.classList.remove("revealed","flagged");
+  el.textContent = "";
+
+  if (cell.revealed){
+    el.classList.add("revealed");
+    el.textContent = cell.mine ? "💣" : (cell.value || "");
+  } else if (cell.flagged){
+    el.classList.add("flagged");
+    el.textContent = "🚩";
+  }
+}
+
+function renderAll(){
+  const cells = boardEl.querySelectorAll(".cell");
+  let i=0;
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
+      renderCell(cells[i++], r, c);
+    }
+  }
+  updateBombHud();
+}
+
+function revealAllMines(){
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
       if (board[r][c].mine) board[r][c].revealed = true;
     }
   }
 }
 
-function loseGame() {
+function lose(){
   gameOver = true;
   revealAllMines();
-  renderBoard();
-  setTimeout(() => alert("Game Over!"), 10);
+  renderAll();
+  setTimeout(()=>alert("Game Over!"), 10);
 }
 
-function winCheck() {
-  if (revealedCells === ROWS * COLS - NUM_MINES) {
+function winCheck(){
+  if (revealedCount === ROWS*COLS - NUM_MINES){
     gameOver = true;
-    renderBoard();
-    setTimeout(() => alert("You Win!"), 10);
+    renderAll();
+    setTimeout(()=>alert("You Win!"), 10);
   }
 }
 
-// ===== Actions =====
-function toggleFlag(r, c) {
+function toggleFlag(r,c){
   const cell = board[r][c];
   if (cell.revealed) return;
   cell.flagged = !cell.flagged;
 }
 
-function floodReveal(sr, sc) {
+function floodReveal(sr, sc){
   const stack = [[sr, sc]];
-
-  while (stack.length) {
-    const [r, c] = stack.pop();
-    if (!inBounds(r, c)) continue;
+  while (stack.length){
+    const [r,c] = stack.pop();
+    if (!inBounds(r,c)) continue;
 
     const cell = board[r][c];
     if (cell.revealed || cell.flagged || cell.mine) continue;
 
     cell.revealed = true;
-    revealedCells++;
+    revealedCount++;
 
-    if (cell.value === 0) {
-      forEachNeighbor(r, c, (nr, nc) => {
+    if (cell.value === 0){
+      forEachNeighbor(r,c,(nr,nc)=>{
         const n = board[nr][nc];
-        if (!n.revealed && !n.flagged) stack.push([nr, nc]);
+        if (!n.revealed && !n.flagged) stack.push([nr,nc]);
       });
     }
   }
 }
 
-function revealCell(r, c) {
+function reveal(r,c){
   const cell = board[r][c];
   if (cell.revealed || cell.flagged) return;
 
-  if (!minesPlaced) {
+  if (!minesPlaced){
     minesPlaced = true;
-    placeMinesSafe(r, c);
-    calculateValues();
+    placeMinesSafe(r,c);
+    calcValues();
   }
 
-  if (cell.mine) {
+  if (cell.mine){
     cell.revealed = true;
-    loseGame();
+    lose();
     return;
   }
 
-  if (cell.value === 0) {
-    // flood handles revealing (including the clicked cell)
-    floodReveal(r, c);
+  if (cell.value === 0){
+    floodReveal(r,c);
   } else {
     cell.revealed = true;
-    revealedCells++;
+    revealedCount++;
   }
 
   winCheck();
 }
 
-// double action: chord reveal in reveal mode
-function chordReveal(r, c) {
+function flaggedNeighbors(r,c){
+  let f=0;
+  forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
+  return f;
+}
+
+function hiddenUnflaggedNeighbors(r,c){
+  const out=[];
+  forEachNeighbor(r,c,(nr,nc)=>{
+    const n = board[nr][nc];
+    if (!n.revealed && !n.flagged) out.push([nr,nc]);
+  });
+  return out;
+}
+
+// Reveal mode double: chord reveal
+function chordReveal(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
 
-  const flagged = countFlaggedNeighbors(r, c);
-  if (flagged !== cell.value) return;
+  const f = flaggedNeighbors(r,c);
+  if (f !== cell.value) return;
 
-  const targets = hiddenUnflaggedNeighbors(r, c);
-  for (const [nr, nc] of targets) {
+  const targets = hiddenUnflaggedNeighbors(r,c);
+  for (const [nr,nc] of targets){
     const n = board[nr][nc];
-
-    if (n.mine) {
+    if (n.mine){
       n.revealed = true;
-      loseGame();
+      lose();
       return;
     }
-
-    if (n.value === 0) floodReveal(nr, nc);
-    else if (!n.revealed) {
+    if (n.value === 0) floodReveal(nr,nc);
+    else if (!n.revealed){
       n.revealed = true;
-      revealedCells++;
+      revealedCount++;
     }
     if (gameOver) return;
   }
-
   winCheck();
 }
 
-// double action: chord flag in flag mode (only if forced)
-function chordFlag(r, c) {
+// Flag mode double: chord flag when forced
+function chordFlag(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
 
-  const flagged = countFlaggedNeighbors(r, c);
-  const targets = hiddenUnflaggedNeighbors(r, c);
-  const need = cell.value - flagged;
+  const f = flaggedNeighbors(r,c);
+  const targets = hiddenUnflaggedNeighbors(r,c);
+  const need = cell.value - f;
 
-  if (need > 0 && need === targets.length) {
-    for (const [nr, nc] of targets) {
+  if (need > 0 && need === targets.length){
+    for (const [nr,nc] of targets){
       board[nr][nc].flagged = true;
     }
   }
 }
 
-// ===== Input handlers =====
-function handleSingle(r, c) {
+// ===== Input: single vs double (stable on mobile) =====
+function onPointerUp(e){
   if (gameOver) return;
 
-  if (mode === "flag") toggleFlag(r, c);
-  else revealCell(r, c);
-
-  renderBoard();
-}
-
-function handleDouble(r, c) {
-  if (gameOver) return;
-
-  const cell = board[r][c];
-  if (!cell.revealed || cell.value <= 0) return;
-
-  if (mode === "reveal") chordReveal(r, c);
-  else chordFlag(r, c);
-
-  renderBoard();
-}
-
-// Desktop: click + dblclick detection via event.detail
-function onCellClick(e) {
-  const r = parseInt(e.currentTarget.dataset.r, 10);
-  const c = parseInt(e.currentTarget.dataset.c, 10);
-
-  if (e.detail >= 2) handleDouble(r, c);
-  else handleSingle(r, c);
-}
-
-// Mobile: real double tap detection
-function onCellTouchEnd(e) {
-  e.preventDefault();
-  const r = parseInt(e.currentTarget.dataset.r, 10);
-  const c = parseInt(e.currentTarget.dataset.c, 10);
-
+  const el = e.currentTarget;
+  const r = parseInt(el.dataset.r, 10);
+  const c = parseInt(el.dataset.c, 10);
   const now = Date.now();
-  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS && lastTapR === r && lastTapC === c;
 
-  if (isDouble) {
-    lastTapTime = 0;
-    lastTapR = -1;
-    lastTapC = -1;
-    handleDouble(r, c);
-  } else {
-    lastTapTime = now;
-    lastTapR = r;
-    lastTapC = c;
-    handleSingle(r, c);
+  // if same cell tapped twice quickly -> DOUBLE
+  if (pendingTap && pendingTap.r === r && pendingTap.c === c && (now - pendingTap.t) <= DOUBLE_MS){
+    clearTimeout(pendingTimer);
+    pendingTimer = null;
+    pendingTap = null;
+
+    // DOUBLE action (only on revealed numbers)
+    if (mode === "reveal") chordReveal(r,c);
+    else chordFlag(r,c);
+
+    renderAll();
+    return;
   }
+
+  // otherwise schedule SINGLE after window (so it doesn't also fire on double)
+  pendingTap = { r, c, t: now };
+  clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(()=>{
+    const { r:sr, c:sc } = pendingTap;
+    pendingTap = null;
+    pendingTimer = null;
+
+    if (mode === "flag") toggleFlag(sr,sc);
+    else reveal(sr,sc);
+
+    renderAll();
+  }, DOUBLE_MS);
 }
 
-// ===== UI buttons =====
-restartBtn.addEventListener("click", () => {
-  createBoard();
-  renderBoard();
-});
-
-toggleModeBtn.addEventListener("click", () => {
+// ===== UI =====
+toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
-  toggleModeBtn.textContent = (mode === "reveal")
-    ? "Switch to Flag Mode"
-    : "Switch to Reveal Mode";
+  toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";
 });
 
-// ===== Init =====
+restartBtn.addEventListener("click", ()=>{
+  createBoard();
+  buildGrid();
+  renderAll();
+});
+
+// Init
 createBoard();
-toggleModeBtn.textContent = "Switch to Flag Mode";
-renderBoard();
+buildGrid();
+toggleBtn.textContent = "Switch to Flag Mode";
+renderAll();

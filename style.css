@@ -1,64 +1,24 @@
-/* General styles */
 body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 0;
   display: flex;
   justify-content: center;
-  align-items: center;
-  height: 100vh;
+  align-items: flex-start;
+  min-height: 100vh;
   background-color: #f4f4f4;
 }
 
-/* Enable zooming for the game container */
 #game-container {
-  touch-action: manipulation; /* allow taps reliably */
-  overflow: hidden;
-  transform-origin: center;
+  width: min(98vw, 1100px);
+  text-align: center;
+  padding-top: 60px; /* space for fixed HUD */
   user-select: none;
+  -webkit-user-select: none;
 }
 
+h1 { margin: 10px 0 15px; }
 
-#game-container {
-  text-align: center;
-}
-
-/* Style for the board */
-#board {
-  display: grid;
-  grid-template-columns: repeat(50, 30px); /* MUST match COLS */
-  gap: 2px;
-  margin: 20px auto;
-  width: max-content; /* keeps it from stretching weirdly */
-}
-
-
-.cell {
-  width: 30px;
-  height: 30px;
-  background-color: #ddd;
-  border: 1px solid #ccc;
-  text-align: center;
-  line-height: 30px;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.cell.revealed {
-  background-color: #fff;
-}
-
-.cell.flagged {
-  background-color: yellow;
-  color: red;
-  font-weight: bold;
-}
-
-#controls {
-  margin-top: 10px;
-}
-
-/* HUD overlay */
 #hud {
   position: fixed;
   top: 0;
@@ -78,11 +38,59 @@ body {
   background-color: #555;
   color: white;
   border: none;
-  padding: 10px 20px;
+  padding: 10px 14px;
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
-#hud button:hover {
-  background-color: #777;
+#hud button:hover { background-color: #777; }
+
+#board {
+  display: grid;
+  gap: 2px;
+  margin: 10px auto;
+  width: max-content;
+  touch-action: manipulation;
+}
+
+/* Responsive cell size: fits mobile better */
+:root {
+  --cell: 26px;
+}
+@media (max-width: 520px) {
+  :root { --cell: 22px; }
+}
+
+.cell {
+  width: var(--cell);
+  height: var(--cell);
+  background-color: #ddd;
+  border: 1px solid #c7c7c7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--cell) * 0.55);
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.cell.revealed {
+  background-color: #fff;
+}
+
+.cell.flagged {
+  background-color: #ffe76a;
+  color: #c40000;
+  font-weight: bold;
+}
+
+#controls {
+  margin: 12px 0 30px;
+}
+#restart-btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
 }
