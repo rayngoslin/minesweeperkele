@@ -1,25 +1,22 @@
-// ===== Minesweeper (fresh, stable, mobile+desktop) =====
-
 const ROWS = 25;
 const COLS = 50;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
 let board;
 let revealedCount;
-let mode = "reveal";      // "reveal" or "flag"
-let minesPlaced = false;  // place mines on first REVEAL action
+let mode = "reveal";
+let minesPlaced = false;
 let gameOver = false;
 
-// UI
 const boardEl = document.getElementById("board");
 const bombEl = document.getElementById("bomb-count");
 const toggleBtn = document.getElementById("toggle-mode");
 const restartBtn = document.getElementById("restart-btn");
 
-// Double-tap handling (prevents single firing twice on mobile)
-const DOUBLE_MS = 240;
-let pendingTap = null;     // { r, c, t }
-let pendingTimer = null;
+const DOUBLE_TAP_MS = 260;
+let lastTapTime = 0;
+let lastTapR = -1;
+let lastTapC = -1;
 
 const DIR8 = [
   [-1,-1], [-1,0], [-1,1],
@@ -28,7 +25,6 @@ const DIR8 = [
 ];
 
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
-
 function forEachNeighbor(r,c,fn){
   for (const [dr,dc] of DIR8){
     const nr=r+dr, nc=c+dc;
@@ -39,10 +35,7 @@ function forEachNeighbor(r,c,fn){
 function createBoard(){
   board = Array.from({length: ROWS}, () =>
     Array.from({length: COLS}, () => ({
-      mine:false,
-      revealed:false,
-      flagged:false,
-      value:0,
+      mine:false, revealed:false, flagged:false, value:0
     }))
   );
   revealedCount = 0;
@@ -51,18 +44,16 @@ function createBoard(){
 }
 
 function placeMinesSafe(sr, sc){
-  // Safe zone 3x3
   const safe = new Set();
   for (let r=sr-1;r<=sr+1;r++){
     for (let c=sc-1;c<=sc+1;c++){
       if (inBounds(r,c)) safe.add(`${r},${c}`);
     }
   }
-
   let placed = 0;
   while (placed < NUM_MINES){
-    const r = (Math.random() * ROWS) | 0;
-    const c = (Math.random() * COLS) | 0;
+    const r = (Math.random()*ROWS)|0;
+    const c = (Math.random()*COLS)|0;
     if (safe.has(`${r},${c}`)) continue;
     if (board[r][c].mine) continue;
     board[r][c].mine = true;
@@ -90,7 +81,6 @@ function countFlags(){
   }
   return f;
 }
-
 function updateBombHud(){
   bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
@@ -107,17 +97,19 @@ function buildGrid(){
       d.dataset.r = String(r);
       d.dataset.c = String(c);
 
-      // Desktop right click: flag (doesn't change mode)
+      // Desktop: immediate click action
+      d.addEventListener("click", onCellClick);
+
+      // Mobile: immediate tap + double-tap detection for chord
+      d.addEventListener("touchend", onCellTouchEnd, { passive: false });
+
+      // Desktop right-click = flag (optional convenience)
       d.addEventListener("contextmenu", (e)=>{
         e.preventDefault();
         if (gameOver) return;
         toggleFlag(r,c);
-        renderCell(d, r, c);
-        updateBombHud();
+        renderAll();
       });
-
-      // Pointer up: unified input (mouse/touch)
-      d.addEventListener("pointerup", onPointerUp);
 
       frag.appendChild(d);
     }
@@ -216,12 +208,8 @@ function reveal(r,c){
     return;
   }
 
-  if (cell.value === 0){
-    floodReveal(r,c);
-  } else {
-    cell.revealed = true;
-    revealedCount++;
-  }
+  if (cell.value === 0) floodReveal(r,c);
+  else { cell.revealed = true; revealedCount++; }
 
   winCheck();
 }
@@ -241,13 +229,12 @@ function hiddenUnflaggedNeighbors(r,c){
   return out;
 }
 
-// Reveal mode double: chord reveal
+// Double action: chord reveal (reveal mode)
 function chordReveal(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
 
-  const f = flaggedNeighbors(r,c);
-  if (f !== cell.value) return;
+  if (flaggedNeighbors(r,c) !== cell.value) return;
 
   const targets = hiddenUnflaggedNeighbors(r,c);
   for (const [nr,nc] of targets){
@@ -258,16 +245,13 @@ function chordReveal(r,c){
       return;
     }
     if (n.value === 0) floodReveal(nr,nc);
-    else if (!n.revealed){
-      n.revealed = true;
-      revealedCount++;
-    }
+    else if (!n.revealed){ n.revealed = true; revealedCount++; }
     if (gameOver) return;
   }
   winCheck();
 }
 
-// Flag mode double: chord flag when forced
+// Double action: chord flag (flag mode, only when forced)
 function chordFlag(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
@@ -283,45 +267,48 @@ function chordFlag(r,c){
   }
 }
 
-// ===== Input: single vs double (stable on mobile) =====
-function onPointerUp(e){
+// ===== Events =====
+
+// Desktop click: immediate action
+function onCellClick(e){
   if (gameOver) return;
+  const r = parseInt(e.currentTarget.dataset.r, 10);
+  const c = parseInt(e.currentTarget.dataset.c, 10);
 
-  const el = e.currentTarget;
-  const r = parseInt(el.dataset.r, 10);
-  const c = parseInt(el.dataset.c, 10);
-  const now = Date.now();
+  if (mode === "flag") toggleFlag(r,c);
+  else reveal(r,c);
 
-  // if same cell tapped twice quickly -> DOUBLE
-  if (pendingTap && pendingTap.r === r && pendingTap.c === c && (now - pendingTap.t) <= DOUBLE_MS){
-    clearTimeout(pendingTimer);
-    pendingTimer = null;
-    pendingTap = null;
-
-    // DOUBLE action (only on revealed numbers)
-    if (mode === "reveal") chordReveal(r,c);
-    else chordFlag(r,c);
-
-    renderAll();
-    return;
-  }
-
-  // otherwise schedule SINGLE after window (so it doesn't also fire on double)
-  pendingTap = { r, c, t: now };
-  clearTimeout(pendingTimer);
-  pendingTimer = setTimeout(()=>{
-    const { r:sr, c:sc } = pendingTap;
-    pendingTap = null;
-    pendingTimer = null;
-
-    if (mode === "flag") toggleFlag(sr,sc);
-    else reveal(sr,sc);
-
-    renderAll();
-  }, DOUBLE_MS);
+  renderAll();
 }
 
-// ===== UI =====
+// Mobile touch: immediate single action; double-tap triggers chord too
+function onCellTouchEnd(e){
+  e.preventDefault();
+  if (gameOver) return;
+
+  const r = parseInt(e.currentTarget.dataset.r, 10);
+  const c = parseInt(e.currentTarget.dataset.c, 10);
+
+  // immediate single
+  if (mode === "flag") toggleFlag(r,c);
+  else reveal(r,c);
+
+  // detect double-tap for chord (extra)
+  const now = Date.now();
+  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS && lastTapR === r && lastTapC === c;
+
+  if (isDouble){
+    lastTapTime = 0; lastTapR = -1; lastTapC = -1;
+    if (mode === "reveal") chordReveal(r,c);
+    else chordFlag(r,c);
+  } else {
+    lastTapTime = now; lastTapR = r; lastTapC = c;
+  }
+
+  renderAll();
+}
+
+// UI
 toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
   toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";

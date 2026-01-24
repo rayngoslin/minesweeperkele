@@ -2,69 +2,81 @@ body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 0;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: 100vh;
-  background-color: #f4f4f4;
+  background: #f4f4f4;
 }
 
 #game-container {
-  width: min(98vw, 1100px);
   text-align: center;
-  padding-top: 60px; /* space for fixed HUD */
+  width: 100%;
   user-select: none;
   -webkit-user-select: none;
+  padding-top: 72px; /* space for fixed HUD */
 }
-
-h1 { margin: 10px 0 15px; }
 
 #hud {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  background-color: #333;
-  color: white;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px;
-  font-size: 18px;
+  right: 0;                 /* better than width:100% on mobile */
   z-index: 1000;
+  background: #333;
+  color: white;
+
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top)); /* iPhone notch */
+  box-sizing: border-box;
+
+  font-size: 16px;
+}
+
+#hud span {
+  white-space: nowrap;
 }
 
 #hud button {
-  background-color: #555;
+  background: #555;
   color: white;
   border: none;
   padding: 10px 14px;
+  border-radius: 8px;
   cursor: pointer;
-  border-radius: 6px;
 }
 
-#hud button:hover { background-color: #777; }
+#hud button:hover { background: #777; }
 
+/* HUD adapts to small screens */
+@media (max-width: 520px) {
+  #hud {
+    font-size: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #hud span { flex: 1 1 auto; text-align: left; }
+  #hud button { flex: 0 0 auto; }
+}
+
+/* Board */
 #board {
   display: grid;
   gap: 2px;
-  margin: 10px auto;
+  margin: 12px auto;
   width: max-content;
   touch-action: manipulation;
 }
 
-/* Responsive cell size: fits mobile better */
-:root {
-  --cell: 26px;
-}
-@media (max-width: 520px) {
-  :root { --cell: 22px; }
-}
+/* Cell sizing responsive */
+:root { --cell: 26px; }
+@media (max-width: 520px) { :root { --cell: 22px; } }
 
 .cell {
   width: var(--cell);
   height: var(--cell);
-  background-color: #ddd;
+  background: #ddd;
   border: 1px solid #c7c7c7;
   display: flex;
   align-items: center;
@@ -75,19 +87,10 @@ h1 { margin: 10px 0 15px; }
   touch-action: manipulation;
 }
 
-.cell.revealed {
-  background-color: #fff;
-}
+.cell.revealed { background: #fff; }
+.cell.flagged  { background: #ffe76a; color: #c40000; font-weight: bold; }
 
-.cell.flagged {
-  background-color: #ffe76a;
-  color: #c40000;
-  font-weight: bold;
-}
-
-#controls {
-  margin: 12px 0 30px;
-}
+#controls { margin: 12px 0 24px; }
 #restart-btn {
   padding: 10px 16px;
   border-radius: 8px;
