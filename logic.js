@@ -189,6 +189,7 @@ function buildFieldDOM(){
   boardEl.innerHTML = "";
 
   const frag = document.createDocumentFragment();
+
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
       const el = document.createElement("div");
@@ -196,9 +197,13 @@ function buildFieldDOM(){
       el.dataset.r = String(r);
       el.dataset.c = String(c);
 
-      el.addEventListener("click", onCellActivate);
-      el.addEventListener("touchend", (e)=>{ e.preventDefault(); onCellActivate(e); }, {passive:false});
+      el.addEventListener("pointerdown", (e) => {
+        // On touch, prevent "ghost click"/scroll quirks
+        if (e.pointerType === "touch") e.preventDefault();
+        onCellActivate(e);
+      });
 
+      // right click support for desktop
       el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
         if (gameOver) return;
@@ -209,6 +214,7 @@ function buildFieldDOM(){
       frag.appendChild(el);
     }
   }
+
   boardEl.appendChild(frag);
 }
 
