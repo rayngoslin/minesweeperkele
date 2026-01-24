@@ -1,22 +1,23 @@
+// ===== Working Minesweeper (renders field immediately) =====
+
 const ROWS = 25;
 const COLS = 50;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
-let board;
-let revealedCount;
-let mode = "reveal";
-let minesPlaced = false;
+let board = [];
+let revealedCount = 0;
+
+let mode = "reveal";         // reveal | flag
+let minesExist = false;      // minefield created (even if first action is flag)
+let safeZoneLocked = false;  // enforced on first REVEAL
 let gameOver = false;
 
 const boardEl = document.getElementById("board");
 const bombEl = document.getElementById("bomb-count");
 const toggleBtn = document.getElementById("toggle-mode");
 const restartBtn = document.getElementById("restart-btn");
-
-const DOUBLE_TAP_MS = 260;
-let lastTapTime = 0;
-let lastTapR = -1;
-let lastTapC = -1;
+const gameContainer = document.getElementById("game-container");
+const hudEl = document.getElementById("hud");
 
 const DIR8 = [
   [-1,-1], [-1,0], [-1,1],
@@ -24,27 +25,8 @@ const DIR8 = [
   [ 1,-1], [ 1,0], [ 1,1],
 ];
 
-function syncHudPadding() {
-  const hud = document.getElementById("hud");
-  const gc = document.getElementById("game-container");
-  if (!hud || !gc) return;
-
-  // Add a bit of spacing under the HUD
-  const h = hud.getBoundingClientRect().height;
-  gc.style.paddingTop = `${Math.ceil(h + 10)}px`;
-}
-
-// run now + on resize/orientation change
-window.addEventListener("resize", syncHudPadding);
-window.addEventListener("orientationchange", syncHudPadding);
-document.addEventListener("DOMContentLoaded", syncHudPadding);
-
-// Telegram WebApp viewport changes (if available)
-if (window.Telegram && Telegram.WebApp && Telegram.WebApp.onEvent) {
-  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
-}
-
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
+
 function forEachNeighbor(r,c,fn){
   for (const [dr,dc] of DIR8){
     const nr=r+dr, nc=c+dc;
@@ -52,48 +34,73 @@ function forEachNeighbor(r,c,fn){
   }
 }
 
-function createBoard(){
+function createEmptyBoard(){
   board = Array.from({length: ROWS}, () =>
     Array.from({length: COLS}, () => ({
       mine:false, revealed:false, flagged:false, value:0
     }))
   );
   revealedCount = 0;
-  minesPlaced = false;
+  minesExist = false;
+  safeZoneLocked = false;
   gameOver = false;
 }
 
-function placeMinesSafe(sr, sc){
-  const safe = new Set();
-  for (let r=sr-1;r<=sr+1;r++){
-    for (let c=sc-1;c<=sc+1;c++){
-      if (inBounds(r,c)) safe.add(`${r},${c}`);
-    }
-  }
+function placeMinesAnywhere(){
   let placed = 0;
   while (placed < NUM_MINES){
     const r = (Math.random()*ROWS)|0;
     const c = (Math.random()*COLS)|0;
-    if (safe.has(`${r},${c}`)) continue;
     if (board[r][c].mine) continue;
     board[r][c].mine = true;
     placed++;
   }
 }
 
+function enforceSafeZone(sr, sc){
+  const safe = new Set();
+  for (let r=sr-1;r<=sr+1;r++){
+    for (let c=sc-1;c<=sc+1;c++){
+      if (inBounds(r,c)) safe.add(`${r},${c}`);
+    }
+  }
+
+  // mines inside safe zone to move out
+  const toMove = [];
+  for (const key of safe){
+    const [r,c] = key.split(",").map(Number);
+    if (board[r][c].mine) toMove.push([r,c]);
+  }
+
+  // remove
+  for (const [r,c] of toMove) board[r][c].mine = false;
+
+  // re-place outside safe zone
+  let moved = 0;
+  while (moved < toMove.length){
+    const r = (Math.random()*ROWS)|0;
+    const c = (Math.random()*COLS)|0;
+    if (safe.has(`${r},${c}`)) continue;
+    if (board[r][c].mine) continue;
+    board[r][c].mine = true;
+    moved++;
+  }
+}
+
 function calcValues(){
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
-      if (board[r][c].mine) continue;
-      let v=0;
+      const cell = board[r][c];
+      if (cell.mine) { cell.value = 0; continue; }
+      let v = 0;
       forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].mine) v++; });
-      board[r][c].value = v;
+      cell.value = v;
     }
   }
 }
 
 function countFlags(){
-  let f=0;
+  let f = 0;
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
       if (board[r][c].flagged) f++;
@@ -101,37 +108,42 @@ function countFlags(){
   }
   return f;
 }
+
 function updateBombHud(){
   bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
 
-function buildGrid(){
+function buildFieldDOM(){
+  // make cells fit screen width in Telegram WebView
+  syncCellSizeToScreen();
+
+  // ensure correct columns
   boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
   boardEl.innerHTML = "";
 
   const frag = document.createDocumentFragment();
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
-      const d = document.createElement("div");
-      d.className = "cell";
-      d.dataset.r = String(r);
-      d.dataset.c = String(c);
+      const el = document.createElement("div");
+      el.className = "cell";
+      el.dataset.r = String(r);
+      el.dataset.c = String(c);
 
-      // Desktop: immediate click action
-      d.addEventListener("click", onCellClick);
+      // Desktop click
+      el.addEventListener("click", onCellActivate);
 
-      // Mobile: immediate tap + double-tap detection for chord
-      d.addEventListener("touchend", onCellTouchEnd, { passive: false });
+      // Mobile tap
+      el.addEventListener("touchend", (e)=>{ e.preventDefault(); onCellActivate(e); }, {passive:false});
 
-      // Desktop right-click = flag (optional convenience)
-      d.addEventListener("contextmenu", (e)=>{
+      // Optional right click flag
+      el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
         if (gameOver) return;
         toggleFlag(r,c);
         renderAll();
       });
 
-      frag.appendChild(d);
+      frag.appendChild(el);
     }
   }
   boardEl.appendChild(frag);
@@ -153,7 +165,7 @@ function renderCell(el, r, c){
 
 function renderAll(){
   const cells = boardEl.querySelectorAll(".cell");
-  let i=0;
+  let i = 0;
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
       renderCell(cells[i++], r, c);
@@ -212,13 +224,24 @@ function floodReveal(sr, sc){
   }
 }
 
+function ensureMinefieldExists(){
+  if (!minesExist){
+    minesExist = true;
+    placeMinesAnywhere();
+    // values will be calculated after first reveal safe-zone
+  }
+}
+
 function reveal(r,c){
   const cell = board[r][c];
   if (cell.revealed || cell.flagged) return;
 
-  if (!minesPlaced){
-    minesPlaced = true;
-    placeMinesSafe(r,c);
+  ensureMinefieldExists();
+
+  // first reveal must be safe
+  if (!safeZoneLocked){
+    safeZoneLocked = true;
+    enforceSafeZone(r,c);
     calcValues();
   }
 
@@ -234,14 +257,14 @@ function reveal(r,c){
   winCheck();
 }
 
+// ===== Quick mapping / flagging by ONE click on revealed number =====
 function flaggedNeighbors(r,c){
-  let f=0;
+  let f = 0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
   return f;
 }
-
 function hiddenUnflaggedNeighbors(r,c){
-  const out=[];
+  const out = [];
   forEachNeighbor(r,c,(nr,nc)=>{
     const n = board[nr][nc];
     if (!n.revealed && !n.flagged) out.push([nr,nc]);
@@ -249,11 +272,9 @@ function hiddenUnflaggedNeighbors(r,c){
   return out;
 }
 
-// Double action: chord reveal (reveal mode)
 function chordReveal(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
-
   if (flaggedNeighbors(r,c) !== cell.value) return;
 
   const targets = hiddenUnflaggedNeighbors(r,c);
@@ -271,7 +292,6 @@ function chordReveal(r,c){
   winCheck();
 }
 
-// Double action: chord flag (flag mode, only when forced)
 function chordFlag(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
@@ -280,6 +300,7 @@ function chordFlag(r,c){
   const targets = hiddenUnflaggedNeighbors(r,c);
   const need = cell.value - f;
 
+  // only flag when logically forced
   if (need > 0 && need === targets.length){
     for (const [nr,nc] of targets){
       board[nr][nc].flagged = true;
@@ -287,72 +308,74 @@ function chordFlag(r,c){
   }
 }
 
-// ===== Events =====
-
-// Desktop click: immediate action
-function onCellClick(e){
+// ===== Click/tap handler =====
+function onCellActivate(e){
   if (gameOver) return;
-
-  const r = parseInt(e.currentTarget.dataset.r, 10);
-  const c = parseInt(e.currentTarget.dataset.c, 10);
+  const el = e.currentTarget;
+  const r = parseInt(el.dataset.r, 10);
+  const c = parseInt(el.dataset.c, 10);
   const cell = board[r][c];
 
-  // ONE-CLICK quick actions on revealed number cells
-  if (cell.revealed && cell.value > 0) {
-    if (mode === "reveal") chordReveal(r, c);
-    else chordFlag(r, c);
+  // Mines exist even if you start by flagging
+  ensureMinefieldExists();
 
+  // ONE-click quick actions on revealed numbers
+  if (cell.revealed && cell.value > 0){
+    if (mode === "reveal") chordReveal(r,c);
+    else chordFlag(r,c);
     renderAll();
     return;
   }
 
-  // Normal single-click behavior (mode toggle)
-  if (mode === "flag") toggleFlag(r, c);
-  else reveal(r, c);
+  // Normal action by mode
+  if (mode === "flag") toggleFlag(r,c);
+  else reveal(r,c);
 
   renderAll();
 }
 
-// Mobile touch: immediate single action; double-tap triggers chord too
-function onCellTouchEnd(e){
-  e.preventDefault();
-  if (gameOver) return;
-
-  const r = parseInt(e.currentTarget.dataset.r, 10);
-  const c = parseInt(e.currentTarget.dataset.c, 10);
-  const cell = board[r][c];
-
-  // ONE-TAP quick actions on revealed number cells
-  if (cell.revealed && cell.value > 0) {
-    if (mode === "reveal") chordReveal(r, c);
-    else chordFlag(r, c);
-
-    renderAll();
-    return;
-  }
-
-  // Normal single-tap behavior (mode toggle)
-  if (mode === "flag") toggleFlag(r, c);
-  else reveal(r, c);
-
-  renderAll();
+// ===== Responsive sizing for Telegram =====
+function syncHudPadding(){
+  const h = hudEl.getBoundingClientRect().height;
+  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
 }
 
+function syncCellSizeToScreen(){
+  // Fit COLS into viewport width (no “PC mode” giant board)
+  const margin = 20;
+  const w = Math.min(window.innerWidth, document.documentElement.clientWidth || window.innerWidth);
+  const cell = Math.max(10, Math.floor((w - margin) / COLS));
+  document.documentElement.style.setProperty("--cell", `${cell}px`);
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
+}
 
-// UI
+window.addEventListener("resize", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
+window.addEventListener("orientationchange", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
+
+// Telegram Mini App viewport events (if available)
+if (window.Telegram?.WebApp?.onEvent){
+  Telegram.WebApp.onEvent("viewportChanged", ()=>{
+    syncCellSizeToScreen();
+    syncHudPadding();
+  });
+}
+
+// ===== UI buttons =====
 toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
   toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";
 });
 
 restartBtn.addEventListener("click", ()=>{
-  createBoard();
-  buildGrid();
+  createEmptyBoard();
+  buildFieldDOM();
   renderAll();
+  syncHudPadding();
 });
 
-// Init
-createBoard();
-buildGrid();
+// ===== Init =====
+createEmptyBoard();
+buildFieldDOM();
 toggleBtn.textContent = "Switch to Flag Mode";
 renderAll();
+syncHudPadding();
