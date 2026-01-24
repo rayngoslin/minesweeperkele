@@ -397,13 +397,35 @@ function onCellActivate(e){
 
   ensureMinefieldExists();
 
-  // One-click quick actions on revealed numbers
-  if (cell.revealed && cell.value > 0){
-    if (mode === "reveal") chordReveal(r,c);
-    else chordFlag(r,c);
+// Single-press smart quick action on revealed number cells:
+// - If remaining hidden neighbors MUST be bombs -> auto-flag them
+// - If bombs are already correctly flagged -> auto-reveal the rest
+if (cell.revealed && cell.value > 0) {
+  const flagged = flaggedNeighbors(r, c);
+  const hidden = hiddenUnflaggedNeighbors(r, c); // only hidden + not flagged
+
+  const need = cell.value - flagged;
+
+  if (need > 0 && need === hidden.length) {
+    // Case 1: all remaining hidden neighbors must be bombs -> flag them
+    for (const [nr, nc] of hidden) board[nr][nc].flagged = true;
     renderAll();
     return;
   }
+
+  if (flagged === cell.value) {
+    // Case 2: all bombs flagged -> reveal the remaining neighbors
+    // (safe to chord reveal)
+    chordReveal(r, c);
+    renderAll();
+    return;
+  }
+
+  // otherwise do nothing (prevents accidental losses)
+  renderAll();
+  return;
+}
+
 
   // Normal action
   if (mode === "flag") toggleFlag(r,c);
