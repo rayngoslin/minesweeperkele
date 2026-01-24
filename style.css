@@ -12,11 +12,12 @@ body {
 
 /* Enable zooming for the game container */
 #game-container {
-  touch-action: none; /* Disable default touch gestures */
-  overflow: hidden; /* Prevent content from overflowing */
-  transform-origin: center; /* Set the zoom origin */
-  user-select: none; /* Prevent text selection */
+  touch-action: manipulation; /* allow taps reliably */
+  overflow: hidden;
+  transform-origin: center;
+  user-select: none;
 }
+
 
 #game-container {
   text-align: center;
@@ -25,10 +26,12 @@ body {
 /* Style for the board */
 #board {
   display: grid;
-  grid-template-columns: repeat(20, 30px); /* Adjusted for COLS */
+  grid-template-columns: repeat(50, 30px); /* MUST match COLS */
   gap: 2px;
   margin: 20px auto;
+  width: max-content; /* keeps it from stretching weirdly */
 }
+
 
 .cell {
   width: 30px;
