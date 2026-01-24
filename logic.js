@@ -1,4 +1,25 @@
-// ===== Working Minesweeper (renders field immediately) =====
+// logic.js (v=20260124_1) — Guaranteed visible field + cache-proof debug banner
+// Features:
+// - HUD pinned + JS auto padding under HUD
+// - Field ALWAYS renders (1250 cells)
+// - One-click actions based on mode toggle (reveal/flag)
+// - One-click quick mapping/quick flagging by clicking revealed number cell
+// - Minefield exists immediately (even if you start by flagging)
+// - First reveal is safe: 3x3 safe zone enforced by relocating mines
+// - Telegram Mini App: tries expand/ready and reacts to viewportChanged
+
+// ===== VERSION BANNER (so you KNOW what's loaded) =====
+document.body.insertAdjacentHTML(
+  "afterbegin",
+  `<div id="ver-banner" style="
+    position:fixed;bottom:0;left:0;right:0;z-index:9999;
+    background:#ff006a;color:#fff;padding:6px 10px;
+    font:14px Arial;">LOGIC.JS LOADED v=20260124_1</div>`
+);
+
+if (window.Telegram?.WebApp) {
+  try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
+}
 
 const ROWS = 25;
 const COLS = 50;
@@ -8,8 +29,8 @@ let board = [];
 let revealedCount = 0;
 
 let mode = "reveal";         // reveal | flag
-let minesExist = false;      // minefield created (even if first action is flag)
-let safeZoneLocked = false;  // enforced on first REVEAL
+let minesExist = false;      // minefield created even if first action is flag
+let safeZoneLocked = false;  // safe zone enforced on first reveal
 let gameOver = false;
 
 const boardEl = document.getElementById("board");
@@ -65,17 +86,14 @@ function enforceSafeZone(sr, sc){
     }
   }
 
-  // mines inside safe zone to move out
   const toMove = [];
   for (const key of safe){
     const [r,c] = key.split(",").map(Number);
     if (board[r][c].mine) toMove.push([r,c]);
   }
 
-  // remove
   for (const [r,c] of toMove) board[r][c].mine = false;
 
-  // re-place outside safe zone
   let moved = 0;
   while (moved < toMove.length){
     const r = (Math.random()*ROWS)|0;
@@ -113,12 +131,33 @@ function updateBombHud(){
   bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
 
+// ===== Responsive sizing (Telegram WebView can lie about innerWidth) =====
+function syncCellSizeToScreen(){
+  const margin = 20;
+  const w1 = window.innerWidth || 0;
+  const w2 = document.documentElement.clientWidth || 0;
+  const w3 = screen.width || 0;
+
+  const w = Math.max(w1, w2, w3, 360);
+
+  let cell = Math.floor((w - margin) / COLS);
+
+  // HARD FLOOR: never invisible
+  if (!Number.isFinite(cell) || cell < 14) cell = 14;
+  if (cell > 32) cell = 32;
+
+  document.documentElement.style.setProperty("--cell", `${cell}px`);
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
+}
+
+function syncHudPadding(){
+  const h = hudEl.getBoundingClientRect().height;
+  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
+}
+
 function buildFieldDOM(){
-  
-  // make cells fit screen width in Telegram WebView
   syncCellSizeToScreen();
 
-  // ensure correct columns
   boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
   boardEl.innerHTML = "";
 
@@ -130,13 +169,11 @@ function buildFieldDOM(){
       el.dataset.r = String(r);
       el.dataset.c = String(c);
 
-      // Desktop click
+      // click/tap
       el.addEventListener("click", onCellActivate);
-
-      // Mobile tap
       el.addEventListener("touchend", (e)=>{ e.preventDefault(); onCellActivate(e); }, {passive:false});
 
-      // Optional right click flag
+      // optional right-click flag
       el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
         if (gameOver) return;
@@ -148,6 +185,13 @@ function buildFieldDOM(){
     }
   }
   boardEl.appendChild(frag);
+
+  // DEBUG: prove it exists
+  setTimeout(() => {
+    const cells = document.querySelectorAll(".cell").length;
+    const rect = boardEl.getBoundingClientRect();
+    console.log("Field built:", {cells, boardW: rect.width, boardH: rect.height});
+  }, 0);
 }
 
 function renderCell(el, r, c){
@@ -229,7 +273,7 @@ function ensureMinefieldExists(){
   if (!minesExist){
     minesExist = true;
     placeMinesAnywhere();
-    // values will be calculated after first reveal safe-zone
+    // values computed after first reveal safe-zone is enforced
   }
 }
 
@@ -239,7 +283,6 @@ function reveal(r,c){
 
   ensureMinefieldExists();
 
-  // first reveal must be safe
   if (!safeZoneLocked){
     safeZoneLocked = true;
     enforceSafeZone(r,c);
@@ -258,7 +301,7 @@ function reveal(r,c){
   winCheck();
 }
 
-// ===== Quick mapping / flagging by ONE click on revealed number =====
+// ===== Quick mapping/flagging with ONE click on revealed number =====
 function flaggedNeighbors(r,c){
   let f = 0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
@@ -301,7 +344,6 @@ function chordFlag(r,c){
   const targets = hiddenUnflaggedNeighbors(r,c);
   const need = cell.value - f;
 
-  // only flag when logically forced
   if (need > 0 && need === targets.length){
     for (const [nr,nc] of targets){
       board[nr][nc].flagged = true;
@@ -317,10 +359,9 @@ function onCellActivate(e){
   const c = parseInt(el.dataset.c, 10);
   const cell = board[r][c];
 
-  // Mines exist even if you start by flagging
   ensureMinefieldExists();
 
-  // ONE-click quick actions on revealed numbers
+  // One-click quick actions on revealed numbers
   if (cell.revealed && cell.value > 0){
     if (mode === "reveal") chordReveal(r,c);
     else chordFlag(r,c);
@@ -328,52 +369,14 @@ function onCellActivate(e){
     return;
   }
 
-  // Normal action by mode
+  // Normal action
   if (mode === "flag") toggleFlag(r,c);
   else reveal(r,c);
 
   renderAll();
 }
 
-// ===== Responsive sizing for Telegram =====
-function syncHudPadding(){
-  const h = hudEl.getBoundingClientRect().height;
-  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
-}
-
-function syncCellSizeToScreen(){
-  const margin = 20;
-
-  // Telegram WebView lies about innerWidth sometimes
-  const w1 = window.innerWidth || 0;
-  const w2 = document.documentElement.clientWidth || 0;
-  const w3 = screen.width || 0;
-
-  const w = Math.max(w1, w2, w3, 360); // force a minimum
-
-  let cell = Math.floor((w - margin) / COLS);
-
-  // HARD FLOOR so cells are always visible
-  if (!Number.isFinite(cell) || cell < 14) cell = 14;
-  if (cell > 32) cell = 32; // don’t let it go stupidly big on desktop
-
-  document.documentElement.style.setProperty("--cell", `${cell}px`);
-  boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
-}
-
-
-window.addEventListener("resize", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
-window.addEventListener("orientationchange", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
-
-// Telegram Mini App viewport events (if available)
-if (window.Telegram?.WebApp?.onEvent){
-  Telegram.WebApp.onEvent("viewportChanged", ()=>{
-    syncCellSizeToScreen();
-    syncHudPadding();
-  });
-}
-
-// ===== UI buttons =====
+// ===== UI =====
 toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
   toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";
@@ -386,7 +389,18 @@ restartBtn.addEventListener("click", ()=>{
   syncHudPadding();
 });
 
-// ===== Init =====
+// Resize behavior
+window.addEventListener("resize", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
+window.addEventListener("orientationchange", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
+
+if (window.Telegram?.WebApp?.onEvent){
+  Telegram.WebApp.onEvent("viewportChanged", ()=>{
+    syncCellSizeToScreen();
+    syncHudPadding();
+  });
+}
+
+// ===== INIT =====
 createEmptyBoard();
 buildFieldDOM();
 toggleBtn.textContent = "Switch to Flag Mode";
