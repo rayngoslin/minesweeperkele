@@ -21,8 +21,8 @@ if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
 }
 
-const ROWS = 25;
-const COLS = 50;
+const ROWS = 50;
+const COLS = 25;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
 let board = [];
