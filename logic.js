@@ -114,6 +114,7 @@ function updateBombHud(){
 }
 
 function buildFieldDOM(){
+  
   // make cells fit screen width in Telegram WebView
   syncCellSizeToScreen();
 
@@ -341,13 +342,25 @@ function syncHudPadding(){
 }
 
 function syncCellSizeToScreen(){
-  // Fit COLS into viewport width (no “PC mode” giant board)
   const margin = 20;
-  const w = Math.min(window.innerWidth, document.documentElement.clientWidth || window.innerWidth);
-  const cell = Math.max(10, Math.floor((w - margin) / COLS));
+
+  // Telegram WebView lies about innerWidth sometimes
+  const w1 = window.innerWidth || 0;
+  const w2 = document.documentElement.clientWidth || 0;
+  const w3 = screen.width || 0;
+
+  const w = Math.max(w1, w2, w3, 360); // force a minimum
+
+  let cell = Math.floor((w - margin) / COLS);
+
+  // HARD FLOOR so cells are always visible
+  if (!Number.isFinite(cell) || cell < 14) cell = 14;
+  if (cell > 32) cell = 32; // don’t let it go stupidly big on desktop
+
   document.documentElement.style.setProperty("--cell", `${cell}px`);
-  boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
 }
+
 
 window.addEventListener("resize", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
 window.addEventListener("orientationchange", ()=>{ syncCellSizeToScreen(); syncHudPadding(); });
