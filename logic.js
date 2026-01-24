@@ -54,11 +54,23 @@ document.body.insertAdjacentHTML(
 );
 
 function syncHudPadding(){
-  const hud = document.getElementById("hud");
-  const gc = document.getElementById("game-container");
-  if (!hud || !gc) return;
-  gc.style.paddingTop = `${Math.ceil(hud.getBoundingClientRect().height + 10)}px`;
+  if (!hudEl || !gameContainer) return;
+  const h = hudEl.getBoundingClientRect().height;
+  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
 }
+
+// run ASAP after first paint
+requestAnimationFrame(syncHudPadding);
+setTimeout(syncHudPadding, 50);
+
+// on changes
+window.addEventListener("resize", syncHudPadding);
+window.addEventListener("orientationchange", syncHudPadding);
+
+if (window.Telegram?.WebApp?.onEvent){
+  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
+}
+
 
 window.addEventListener("resize", syncHudPadding);
 window.addEventListener("orientationchange", syncHudPadding);
@@ -177,11 +189,6 @@ function syncCellSizeToScreen(){
 
   document.documentElement.style.setProperty("--cell", `${cell}px`);
   boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
-}
-
-function syncHudPadding(){
-  const h = hudEl.getBoundingClientRect().height;
-  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
 }
 
 function buildFieldDOM(){
