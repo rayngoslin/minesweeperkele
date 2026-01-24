@@ -154,10 +154,8 @@ function countFlags(){
 }
 
 function updateBombHud(){
-  document.getElementById("bomb-count").textContent =
-    String(NUM_MINES - countFlags());
+  bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
-
 
 // ===== Responsive sizing (Telegram WebView can lie about innerWidth) =====
 function syncCellSizeToScreen(){
