@@ -1,99 +1,64 @@
-body {
-  font-family: Arial, sans-serif;
-  margin: 0;
-  padding: 0;
-  background: #f4f4f4;
-}
-
-#game-container {
-  text-align: center;
-  width: 100%;
-  user-select: none;
-  -webkit-user-select: none;
-  padding-top: 72px; /* space for fixed HUD */
-}
-
-#hud {
+/* HUD pinned + responsive for Telegram WebView */
+#hud{
   position: fixed;
   top: 0;
   left: 0;
-  right: 0;                 /* better than width:100% on mobile */
-  z-index: 1000;
+  right: 0;
+
+  /* Safe area (notch) */
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-left: max(10px, env(safe-area-inset-left));
+  padding-right: max(10px, env(safe-area-inset-right));
+  padding-bottom: 10px;
+
   background: #333;
-  color: white;
-
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 10px 12px;
-  padding-top: calc(10px + env(safe-area-inset-top)); /* iPhone notch */
+  color: #fff;
+  z-index: 1000;
   box-sizing: border-box;
 
-  font-size: 16px;
-}
-
-#hud span {
-  white-space: nowrap;
-}
-
-#hud button {
-  background: #555;
-  color: white;
-  border: none;
-  padding: 10px 14px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-#hud button:hover { background: #777; }
-
-/* HUD adapts to small screens */
-@media (max-width: 520px) {
-  #hud {
-    font-size: 14px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  #hud span { flex: 1 1 auto; text-align: left; }
-  #hud button { flex: 0 0 auto; }
-}
-
-/* Board */
-#board {
-  display: grid;
-  gap: 2px;
-  margin: 12px auto;
-  width: max-content;
-  touch-action: manipulation;
-}
-
-/* Cell sizing responsive */
-:root { --cell: 26px; }
-@media (max-width: 520px) { :root { --cell: 22px; } }
-
-.cell {
-  width: var(--cell);
-  height: var(--cell);
-  background: #ddd;
-  border: 1px solid #c7c7c7;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: calc(var(--cell) * 0.55);
-  line-height: 1;
-  cursor: pointer;
-  touch-action: manipulation;
+  justify-content: space-between;
+  gap: 10px;
+
+  /* Key: responsive text size */
+  font-size: clamp(12px, 3.5vw, 18px);
+  line-height: 1.2;
+
+  /* Key: allow it to wrap on narrow screens */
+  flex-wrap: wrap;
 }
 
-.cell.revealed { background: #fff; }
-.cell.flagged  { background: #ffe76a; color: #c40000; font-weight: bold; }
+#hud span{
+  flex: 1 1 auto;
+  min-width: 140px;      /* prevents squishing into nothing */
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-#controls { margin: 12px 0 24px; }
-#restart-btn {
-  padding: 10px 16px;
-  border-radius: 8px;
+#hud button{
+  flex: 0 0 auto;
+
+  /* Key: responsive button sizing */
+  font-size: clamp(12px, 3.3vw, 16px);
+  padding: clamp(8px, 2.8vw, 12px) clamp(10px, 3.2vw, 16px);
+
+  background: #555;
+  color: #fff;
   border: none;
+  border-radius: 10px;
   cursor: pointer;
+}
+
+/* IMPORTANT: your content needs top padding equal to HUD height.
+   We'll set it dynamically in JS (next section). */
+#game-container{
+  width: 100vw;
+  max-width: 100vw;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding-left: 8px;
+  padding-right: 8px;
 }

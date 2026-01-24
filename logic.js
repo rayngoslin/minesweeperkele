@@ -24,6 +24,26 @@ const DIR8 = [
   [ 1,-1], [ 1,0], [ 1,1],
 ];
 
+function syncHudPadding() {
+  const hud = document.getElementById("hud");
+  const gc = document.getElementById("game-container");
+  if (!hud || !gc) return;
+
+  // Add a bit of spacing under the HUD
+  const h = hud.getBoundingClientRect().height;
+  gc.style.paddingTop = `${Math.ceil(h + 10)}px`;
+}
+
+// run now + on resize/orientation change
+window.addEventListener("resize", syncHudPadding);
+window.addEventListener("orientationchange", syncHudPadding);
+document.addEventListener("DOMContentLoaded", syncHudPadding);
+
+// Telegram WebApp viewport changes (if available)
+if (window.Telegram && Telegram.WebApp && Telegram.WebApp.onEvent) {
+  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
+}
+
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 function forEachNeighbor(r,c,fn){
   for (const [dr,dc] of DIR8){
@@ -272,11 +292,23 @@ function chordFlag(r,c){
 // Desktop click: immediate action
 function onCellClick(e){
   if (gameOver) return;
+
   const r = parseInt(e.currentTarget.dataset.r, 10);
   const c = parseInt(e.currentTarget.dataset.c, 10);
+  const cell = board[r][c];
 
-  if (mode === "flag") toggleFlag(r,c);
-  else reveal(r,c);
+  // ONE-CLICK quick actions on revealed number cells
+  if (cell.revealed && cell.value > 0) {
+    if (mode === "reveal") chordReveal(r, c);
+    else chordFlag(r, c);
+
+    renderAll();
+    return;
+  }
+
+  // Normal single-click behavior (mode toggle)
+  if (mode === "flag") toggleFlag(r, c);
+  else reveal(r, c);
 
   renderAll();
 }
@@ -288,25 +320,24 @@ function onCellTouchEnd(e){
 
   const r = parseInt(e.currentTarget.dataset.r, 10);
   const c = parseInt(e.currentTarget.dataset.c, 10);
+  const cell = board[r][c];
 
-  // immediate single
-  if (mode === "flag") toggleFlag(r,c);
-  else reveal(r,c);
+  // ONE-TAP quick actions on revealed number cells
+  if (cell.revealed && cell.value > 0) {
+    if (mode === "reveal") chordReveal(r, c);
+    else chordFlag(r, c);
 
-  // detect double-tap for chord (extra)
-  const now = Date.now();
-  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS && lastTapR === r && lastTapC === c;
-
-  if (isDouble){
-    lastTapTime = 0; lastTapR = -1; lastTapC = -1;
-    if (mode === "reveal") chordReveal(r,c);
-    else chordFlag(r,c);
-  } else {
-    lastTapTime = now; lastTapR = r; lastTapC = c;
+    renderAll();
+    return;
   }
+
+  // Normal single-tap behavior (mode toggle)
+  if (mode === "flag") toggleFlag(r, c);
+  else reveal(r, c);
 
   renderAll();
 }
+
 
 // UI
 toggleBtn.addEventListener("click", ()=>{
