@@ -53,6 +53,25 @@ document.body.insertAdjacentHTML(
               font:14px Arial;">LOGIC VERSION: 150</div>`
 );
 
+function syncHudPadding(){
+  const hud = document.getElementById("hud");
+  const gc = document.getElementById("game-container");
+  if (!hud || !gc) return;
+
+  // exact visible height of HUD
+  const h = hud.getBoundingClientRect().height;
+
+  // put the game below it
+  gc.style.paddingTop = `${Math.ceil(h + 10)}px`;
+}
+
+window.addEventListener("resize", syncHudPadding);
+window.addEventListener("orientationchange", syncHudPadding);
+
+if (window.Telegram?.WebApp?.onEvent) {
+  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
+}
+
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 
 function forEachNeighbor(r,c,fn){
