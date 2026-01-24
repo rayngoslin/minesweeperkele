@@ -5,74 +5,89 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Telegram Minesweeper</title>
 
-  <script>
-    /**
-     * Telegram Mobile WebView cache-buster for fixed bot Mini App URLs.
-     *
-     * Problem: TG Mobile caches the HTML itself. If HTML is cached, it keeps pointing to old JS/CSS.
-     * Fix: On every open, redirect (replace) to the same page with a unique query param.
-     *
-     * - Does NOT require renaming files
-     * - Does NOT require changing bot URL
-     * - Works even if TG serves an old cached HTML, because the redirect runs anyway
-     */
+  <!-- Critical HUD CSS inline so it never breaks on mobile -->
+  <style>
+    #hud{
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 9999;
 
-    (function () {
-      const isTelegram = !!(window.Telegram && window.Telegram.WebApp);
+      height: 56px;
 
-      // Only do this aggressive cache-bust inside Telegram.
-      if (!isTelegram) return;
+      padding-left: max(10px, env(safe-area-inset-left));
+      padding-right: max(10px, env(safe-area-inset-right));
+      padding-top: max(0px, env(safe-area-inset-top));
 
-      const url = new URL(window.location.href);
+      background: #4a5568;
+      color: #fff;
 
-      // If we already have a cache-bust param, don't loop.
-      if (url.searchParams.has("tgcb")) return;
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      align-items: center;
 
-      // Create a per-open unique value (enough to break TG's cache key)
-      const cb = Date.now().toString(36);
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
 
-      url.searchParams.set("tgcb", cb);
+    .hud-left,
+    .hud-center,
+    .hud-right{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
-      // IMPORTANT: replace so it doesn't spam history
-      window.location.replace(url.toString());
-    })();
-  </script>
+    .hud-center{
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
 
-  <!-- Load assets with the same cache-bust token, so TG can't reuse old JS/CSS -->
-  <link rel="stylesheet" id="css-link">
-  <script id="js-link" defer></script>
+    #bomb-icon{ font-size: 18px; }
+    #bomb-count{ min-width: 36px; text-align: center; }
 
-  <script>
-    (function () {
-      const url = new URL(window.location.href);
-      const cb = url.searchParams.get("tgcb") || "nocb";
+    #hud button{
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 18px;
+      background: transparent;
+      color: #fff;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
 
-      // If you want: keep filenames stable, bust via query
-      document.getElementById("css-link").href = `style.css?tgcb=${cb}`;
-      document.getElementById("js-link").src   = `logic.js?tgcb=${cb}`;
-    })();
-  </script>
+    #hud button:active{
+      background: rgba(255,255,255,0.15);
+    }
+  </style>
+
+  <link rel="stylesheet" href="style.css" />
+  <script src="logic.js" defer></script>
 </head>
 
 <body>
-  <div id="html-debug" style="
-  position:fixed; bottom:0; left:0; right:0; z-index:999999;
-  background:#000; color:#0f0; padding:6px 10px; font:12px monospace;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-  HTML BUILD: 2026-01-24-A | URL: <span id="u"></span>
-</div>
-<script>
-  document.getElementById("u").textContent = location.href;
-</script>
-  
+  <!-- Telegram-style HUD -->
   <div id="hud">
-    <span id="bomb-count">Bombs: 0</span>
-    <button id="toggle-mode">Switch to Flag Mode</button>
-    <button id="restart-btn">Restart</button>
+    <div class="hud-left">
+      <button id="back-btn">←</button>
+    </div>
+
+    <div class="hud-center">
+      <span id="bomb-icon">💣</span>
+      <span id="bomb-count">0</span>
+    </div>
+
+    <div class="hud-right">
+      <button id="restart-btn">↻</button>
+    </div>
   </div>
 
+  <!-- Game -->
   <div id="game-container">
-    <h1>Telegram Minesweeper</h1>
     <div id="board"></div>
   </div>
 </body>
