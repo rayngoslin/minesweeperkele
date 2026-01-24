@@ -46,6 +46,13 @@ const DIR8 = [
   [ 1,-1], [ 1,0], [ 1,1],
 ];
 
+document.body.insertAdjacentHTML(
+  "afterbegin",
+  `<div style="position:fixed;bottom:0;left:0;right:0;z-index:99999;
+              background:#ff006a;color:white;padding:6px 10px;
+              font:14px Arial;">LOGIC VERSION: 150</div>`
+);
+
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 
 function forEachNeighbor(r,c,fn){

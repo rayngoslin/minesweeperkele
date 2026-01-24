@@ -1,4 +1,3 @@
-<!-- index.html (CACHE-BUSTED) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,17 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Telegram Minesweeper</title>
 
-  <!-- IMPORTANT: bump v=... every time you update -->
-  <link rel="stylesheet" href="style.css?v=20260124_1" />
-  <script src="logic.js?v=20260124_1" defer></script>
+  <!-- Dynamic cache-busted asset loader -->
+  <link rel="stylesheet" id="css-link">
+  <script id="js-link" defer></script>
+
+  <script>
+    /*
+      🔁 CHANGE ONLY THIS NUMBER ON EACH DEPLOY
+      This forces Telegram Mobile to reload JS/CSS.
+    */
+    const BUILD = 152;  // <-- bump this when you update anything
+
+    const css = document.getElementById("css-link");
+    const js  = document.getElementById("js-link");
+
+    css.href = `style.css?build=${BUILD}`;
+    js.src   = `logic.js?build=${BUILD}`;
+  </script>
 </head>
+
 <body>
+  <!-- HUD -->
   <div id="hud">
     <span id="bomb-count">Bombs: 0</span>
     <button id="toggle-mode">Switch to Flag Mode</button>
     <button id="restart-btn">Restart</button>
   </div>
 
+  <!-- Game -->
   <div id="game-container">
     <h1>Telegram Minesweeper</h1>
     <div id="board"></div>
