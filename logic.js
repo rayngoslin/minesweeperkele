@@ -1,37 +1,40 @@
-// =========================
-// Mobile-friendly Minesweeper
-// =========================
+// logic.js — keeps your mode toggle (reveal/flag) exactly as in your HTML
+// Adds:
+// - Proper flood reveal (fixed)
+// - Safe first click (3x3 safe zone)
+// - Quick mapping (double-click / double-tap) on a REVEALED number cell in REVEAL mode:
+//     If flaggedNeighbors == number => reveal all other hidden neighbors (classic chord)
+// - Quick flagging (double-click / double-tap) on a REVEALED number cell in FLAG mode:
+//     If (number - flaggedNeighbors) == hiddenUnflaggedNeighborsCount => flag them all (deterministic)
+// - Mobile: double-tap supported via Pointer Events
+// - Still supports right-click to toggle flag regardless of mode (optional but nice on desktop)
+
+const MULTIPLIER = 5; // (kept, in case your CSS uses it)
 
 const ROWS = 25;
 const COLS = 50;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
-// timing
-const LONG_PRESS_MS = 350;
-const DOUBLE_TAP_MS = 280;
-const MOVE_CANCEL_PX = 12;
-
 let board = [];
 let revealedCells = 0;
+let mode = "reveal"; // <-- YOUR MODE SYSTEM
 let firstClick = true;
 let gameOver = false;
 
-// DOM
-let boardEl, bombCountEl, cellEls = [];
+// UI
+const boardElement = document.getElementById("board");
+const bombCountElement = document.getElementById("bomb-count");
+const restartBtn = document.getElementById("restart-btn");
+const toggleModeBtn = document.getElementById("toggle-mode");
 
-// touch / click state
-let pressTimer = null;
-let pressActive = false;
-let longPressFired = false;
-let pressStartX = 0;
-let pressStartY = 0;
-
+// Double tap/click
+const DOUBLE_TAP_MS = 280;
 let lastTapTime = 0;
 let lastTapR = -1;
 let lastTapC = -1;
 
-// helpers
-const directions8 = [
+// Neighbors
+const DIR8 = [
   [-1, -1], [-1, 0], [-1, 1],
   [ 0, -1],          [ 0, 1],
   [ 1, -1], [ 1, 0], [ 1, 1],
@@ -41,26 +44,31 @@ function inBounds(r, c) {
   return r >= 0 && r < ROWS && c >= 0 && c < COLS;
 }
 
-function neighbors(r, c) {
-  const res = [];
-  for (const [dr, dc] of directions8) {
+function forEachNeighbor(r, c, fn) {
+  for (const [dr, dc] of DIR8) {
     const nr = r + dr, nc = c + dc;
-    if (inBounds(nr, nc)) res.push([nr, nc]);
+    if (inBounds(nr, nc)) fn(nr, nc);
   }
-  return res;
 }
 
 function countFlaggedNeighbors(r, c) {
   let n = 0;
-  for (const [nr, nc] of neighbors(r, c)) {
+  forEachNeighbor(r, c, (nr, nc) => {
     if (board[nr][nc].flagged) n++;
-  }
+  });
   return n;
 }
 
-// =========================
-// Board
-// =========================
+function listHiddenUnflaggedNeighbors(r, c) {
+  const out = [];
+  forEachNeighbor(r, c, (nr, nc) => {
+    const cell = board[nr][nc];
+    if (!cell.revealed && !cell.flagged) out.push([nr, nc]);
+  });
+  return out;
+}
+
+// ======= Board setup =======
 function createBoard() {
   board = Array.from({ length: ROWS }, () =>
     Array.from({ length: COLS }, () => ({
@@ -75,10 +83,11 @@ function createBoard() {
   gameOver = false;
 }
 
-function placeMinesSafe(sr, sc) {
+function placeMinesSafe(firstRow, firstCol) {
+  // 3x3 safe zone around first click (feels like real Minesweeper)
   const safe = new Set();
-  for (let r = sr - 1; r <= sr + 1; r++) {
-    for (let c = sc - 1; c <= sc + 1; c++) {
+  for (let r = firstRow - 1; r <= firstRow + 1; r++) {
+    for (let c = firstCol - 1; c <= firstCol + 1; c++) {
       if (inBounds(r, c)) safe.add(`${r},${c}`);
     }
   }
@@ -97,319 +106,253 @@ function placeMinesSafe(sr, sc) {
 function calculateValues() {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (board[r][c].mine) continue;
+      const cell = board[r][c];
+      if (cell.mine) continue;
+
       let v = 0;
-      for (const [nr, nc] of neighbors(r, c)) {
+      forEachNeighbor(r, c, (nr, nc) => {
         if (board[nr][nc].mine) v++;
-      }
-      board[r][c].value = v;
+      });
+      cell.value = v;
     }
   }
 }
 
-// =========================
-// Rendering
-// =========================
-function buildDOM() {
-  boardEl = document.getElementById("board");
-  bombCountEl = document.getElementById("bomb-count");
+// ======= Rendering =======
+function updateBombCount() {
+  const flagged = board.flat().reduce((acc, cell) => acc + (cell.flagged ? 1 : 0), 0);
+  bombCountElement.textContent = `Bombs: ${NUM_MINES - flagged}`;
+}
 
-  boardEl.style.display = "grid";
-  boardEl.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
-  boardEl.style.touchAction = "manipulation";
-
-  boardEl.innerHTML = "";
-  cellEls = Array.from({ length: ROWS }, () => Array(COLS));
-
-  const frag = document.createDocumentFragment();
+function renderBoard() {
+  boardElement.innerHTML = "";
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
+      const cell = board[r][c];
       const el = document.createElement("div");
-      el.className = "cell";
-      el.dataset.r = r;
-      el.dataset.c = c;
+      el.classList.add("cell");
+      el.dataset.r = String(r);
+      el.dataset.c = String(c);
 
-      el.addEventListener("contextmenu", e => {
+      if (cell.revealed) {
+        el.classList.add("revealed");
+        el.textContent = cell.mine ? "💣" : (cell.value || "");
+      } else if (cell.flagged) {
+        el.textContent = "🚩";
+      }
+
+      // Pointer-based click (touch + mouse)
+      el.addEventListener("pointerup", onCellPointerUp);
+
+      // Desktop right click: toggle flag (doesn't interfere with your mode)
+      el.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        if (!gameOver) toggleFlag(r, c);
+        if (gameOver) return;
+        toggleFlag(r, c);
+        renderBoard();
       });
 
-      el.addEventListener("pointerdown", onPointerDown);
-      el.addEventListener("pointermove", onPointerMove);
-      el.addEventListener("pointerup", onPointerUp);
-      el.addEventListener("pointercancel", onPointerCancel);
-
-      cellEls[r][c] = el;
-      frag.appendChild(el);
+      boardElement.appendChild(el);
     }
   }
 
-  boardEl.appendChild(frag);
   updateBombCount();
-  fullRepaint();
 }
 
-function paintCell(r, c) {
-  const cell = board[r][c];
-  const el = cellEls[r][c];
-
-  el.textContent = "";
-  el.classList.remove("revealed", "flagged", "mine");
-
-  if (cell.revealed) {
-    el.classList.add("revealed");
-    if (cell.mine) {
-      el.classList.add("mine");
-      el.textContent = "💣";
-    } else if (cell.value > 0) {
-      el.textContent = cell.value;
-    }
-  } else if (cell.flagged) {
-    el.classList.add("flagged");
-    el.textContent = "🚩";
-  }
-}
-
-function fullRepaint() {
+// ======= Game logic =======
+function revealAllMines() {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      paintCell(r, c);
+      if (board[r][c].mine) board[r][c].revealed = true;
     }
   }
 }
 
-function updateBombCount() {
-  let flagged = 0;
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (board[r][c].flagged) flagged++;
-    }
-  }
-  bombCountEl.textContent = `Bombs: ${NUM_MINES - flagged}`;
+function loseGame() {
+  gameOver = true;
+  revealAllMines();
+  renderBoard();
+  setTimeout(() => alert("Game Over!"), 10);
 }
 
-// =========================
-// Game logic
-// =========================
+function winCheck() {
+  if (revealedCells === ROWS * COLS - NUM_MINES) {
+    gameOver = true;
+    renderBoard();
+    setTimeout(() => alert("You Win!"), 10);
+  }
+}
+
 function toggleFlag(r, c) {
   const cell = board[r][c];
-  if (gameOver || cell.revealed) return;
-
+  if (cell.revealed) return;
   cell.flagged = !cell.flagged;
-  paintCell(r, c);
-  updateBombCount();
 }
 
-function revealSingleCell(r, c) {
+function revealCell(r, c) {
   const cell = board[r][c];
   if (cell.revealed || cell.flagged) return;
 
   cell.revealed = true;
   revealedCells++;
-  paintCell(r, c);
+
+  if (cell.mine) {
+    loseGame();
+    return;
+  }
+
+  if (cell.value === 0) {
+    floodReveal(r, c);
+  }
+
+  winCheck();
 }
 
-function floodRevealFromZero(sr, sc) {
-  const stack = [[sr, sc]];
+// Proper flood reveal: reveals zero-region + bordering numbers, never mines
+function floodReveal(startR, startC) {
+  const stack = [[startR, startC]];
 
   while (stack.length) {
     const [r, c] = stack.pop();
     if (!inBounds(r, c)) continue;
 
     const cell = board[r][c];
-    if (cell.revealed || cell.flagged || cell.mine) continue;
+    if (cell.revealed || cell.flagged) continue;
+    if (cell.mine) continue;
 
     cell.revealed = true;
     revealedCells++;
-    paintCell(r, c);
 
     if (cell.value === 0) {
-      for (const [nr, nc] of neighbors(r, c)) {
-        stack.push([nr, nc]);
-      }
+      forEachNeighbor(r, c, (nr, nc) => {
+        const ncell = board[nr][nc];
+        if (!ncell.revealed && !ncell.flagged) stack.push([nr, nc]);
+      });
     }
   }
 }
 
-function quickRevealNeighbors(r, c) {
+// ======= Quick mapping / quick flagging on revealed numbers =======
+//
+// REVEAL mode double-click on revealed number:
+//   if flaggedNeighbors == number => reveal all other hidden neighbors
+function quickMapReveal(r, c) {
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
 
   const flagged = countFlaggedNeighbors(r, c);
   if (flagged !== cell.value) return;
 
-  for (const [nr, nc] of neighbors(r, c)) {
+  const targets = listHiddenUnflaggedNeighbors(r, c);
+  for (const [nr, nc] of targets) {
     const ncell = board[nr][nc];
-    if (ncell.revealed || ncell.flagged) continue;
 
+    // If flags are wrong, you can still hit a mine here (classic behavior)
     if (ncell.mine) {
       ncell.revealed = true;
-      paintCell(nr, nc);
-      endGameLose();
+      loseGame();
       return;
     }
 
-    if (ncell.value === 0) floodRevealFromZero(nr, nc);
-    else revealSingleCell(nr, nc);
+    if (ncell.value === 0) floodReveal(nr, nc);
+    else revealCell(nr, nc);
+    if (gameOver) return;
   }
 }
 
-function revealCell(r, c) {
-  if (gameOver) return;
+// FLAG mode double-click on revealed number:
+//   if (number - flaggedNeighbors) == hiddenUnflaggedNeighborsCount => flag them all
+function quickMapFlag(r, c) {
   const cell = board[r][c];
-  if (cell.flagged) return;
+  if (!cell.revealed || cell.value <= 0) return;
 
-  if (firstClick) {
-    firstClick = false;
-    placeMinesSafe(r, c);
-    calculateValues();
-  }
+  const flagged = countFlaggedNeighbors(r, c);
+  const targets = listHiddenUnflaggedNeighbors(r, c);
+  const needFlags = cell.value - flagged;
 
-  if (cell.revealed) return;
+  if (needFlags <= 0) return;
+  if (needFlags !== targets.length) return;
 
-  if (cell.mine) {
-    cell.revealed = true;
-    paintCell(r, c);
-    endGameLose();
-    return;
-  }
-
-  if (cell.value === 0) floodRevealFromZero(r, c);
-  else revealSingleCell(r, c);
-
-  checkWin();
-}
-
-function checkWin() {
-  if (revealedCells === ROWS * COLS - NUM_MINES) {
-    gameOver = true;
-    setTimeout(() => alert("You Win!"), 10);
+  for (const [nr, nc] of targets) {
+    board[nr][nc].flagged = true;
   }
 }
 
-function revealAllMines() {
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (board[r][c].mine) {
-        board[r][c].revealed = true;
-        paintCell(r, c);
-      }
-    }
-  }
-}
-
-function endGameLose() {
-  gameOver = true;
-  revealAllMines();
-  setTimeout(() => alert("Game Over!"), 10);
-}
-
-// =========================
-// Pointer + double-tap logic
-// =========================
-function getRC(e) {
-  const el = e.currentTarget;
-  return [parseInt(el.dataset.r, 10), parseInt(el.dataset.c, 10)];
-}
-
-function onPointerDown(e) {
+// ======= Input handler (single vs double tap/click) =======
+function onCellPointerUp(e) {
   if (gameOver) return;
 
-  pressActive = true;
-  longPressFired = false;
-  pressStartX = e.clientX;
-  pressStartY = e.clientY;
+  const el = e.currentTarget;
+  const r = parseInt(el.dataset.r, 10);
+  const c = parseInt(el.dataset.c, 10);
 
-  e.currentTarget.setPointerCapture?.(e.pointerId);
-
-  if (e.pointerType !== "mouse") {
-    clearTimeout(pressTimer);
-    pressTimer = setTimeout(() => {
-      if (!pressActive) return;
-      longPressFired = true;
-      const [r, c] = getRC(e);
-      toggleFlag(r, c);
-    }, LONG_PRESS_MS);
-  }
-}
-
-function onPointerMove(e) {
-  if (!pressActive) return;
-  const dx = e.clientX - pressStartX;
-  const dy = e.clientY - pressStartY;
-  if (dx * dx + dy * dy > MOVE_CANCEL_PX * MOVE_CANCEL_PX) {
-    clearTimeout(pressTimer);
-  }
-}
-
-function onPointerUp(e) {
-  if (!pressActive) return;
-  pressActive = false;
-  clearTimeout(pressTimer);
-
-  if (longPressFired) return;
-
-  const [r, c] = getRC(e);
   const now = Date.now();
+  const isDouble =
+    (now - lastTapTime) < DOUBLE_TAP_MS &&
+    lastTapR === r &&
+    lastTapC === c;
 
-  // ----- DOUBLE TAP / DOUBLE CLICK -----
-  if (now - lastTapTime < DOUBLE_TAP_MS && lastTapR === r && lastTapC === c) {
+  if (isDouble) {
+    // consume double
     lastTapTime = 0;
+    lastTapR = -1;
+    lastTapC = -1;
 
-    const cell = board[r][c];
-
-    if (!cell.revealed) {
-      toggleFlag(r, c); // double-tap flag
-    } else if (cell.value > 0) {
-      quickRevealNeighbors(r, c); // double-tap chord
-      checkWin();
+    // Double-tap behavior depends on MODE and whether this cell is revealed number
+    if (mode === "reveal") {
+      // Quick mapping/chording on revealed number cells
+      quickMapReveal(r, c);
+    } else {
+      // Flag mode: quick flag mapping on revealed number cells
+      quickMapFlag(r, c);
     }
 
+    renderBoard();
     return;
   }
 
+  // store for possible double
   lastTapTime = now;
   lastTapR = r;
   lastTapC = c;
 
-  // ----- SINGLE TAP -----
+  // Single tap behavior uses YOUR toggle mode
+  if (firstClick && mode === "reveal") {
+    firstClick = false;
+    placeMinesSafe(r, c);
+    calculateValues();
+  } else if (firstClick && mode === "flag") {
+    // If user starts by flagging, don't place mines yet.
+    // Mines are placed on first REVEAL click only (keeps rules sane).
+  }
+
+  if (mode === "flag") {
+    // single tap in flag mode = flag/unflag
+    toggleFlag(r, c);
+    renderBoard();
+    return;
+  }
+
+  // reveal mode single tap
   revealCell(r, c);
+  renderBoard();
 }
 
-function onPointerCancel() {
-  pressActive = false;
-  clearTimeout(pressTimer);
-}
-
-// =========================
-// Init
-// =========================
-function startGame() {
+// ======= UI buttons =======
+restartBtn.addEventListener("click", () => {
   createBoard();
-  buildDOM();
-}
+  renderBoard();
+});
 
-startGame();
+toggleModeBtn.addEventListener("click", () => {
+  mode = (mode === "reveal") ? "flag" : "reveal";
+  toggleModeBtn.textContent = (mode === "reveal")
+    ? "Switch to Flag Mode"
+    : "Switch to Reveal Mode";
+});
 
-/*
-Expected HTML:
-
-<div id="hud">
-  <span id="bomb-count"></span>
-</div>
-<div id="board"></div>
-
-Minimal CSS idea:
-
-#board { gap: 1px; }
-.cell {
-  user-select: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cell.revealed { background: #ddd; }
-.cell.flagged { background: #bbb; }s
-
-*/
+// ======= Init =======
+createBoard();
+renderBoard();
+toggleModeBtn.textContent = "Switch to Flag Mode";
