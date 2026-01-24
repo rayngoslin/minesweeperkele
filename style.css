@@ -1,49 +1,57 @@
-/* style.css */
 * { box-sizing: border-box; }
 
-:root {
-  --cell: 18px; /* SAFE fallback if JS sizing fails */
+:root{
+  --cell: 18px; /* fallback */
+  --hud-h: 56px; /* base HUD height */
 }
 
-body {
+html, body{
+  height: 100%;
+  width: 100%;
   margin: 0;
+  padding: 0;
+
+  /* IMPORTANT for Telegram Android fixed headers */
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+body{
   font-family: Arial, sans-serif;
   background: #f4f4f4;
 }
 
-/* HUD pinned + responsive (Telegram-safe) */
-/* --- HUD: ALWAYS pinned, always visible, phone-friendly --- */
+/* ===== HUD: pinned + Telegram-Android stable ===== */
 #hud{
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 9999;
+  z-index: 99999;
 
-  /* safe-area for notches */
+  /* compositing: helps fixed behave on Android WebView */
+  transform: translateZ(0);
+  will-change: transform;
+
+  background: #333;
+  color: #fff;
+
   padding-top: max(10px, env(safe-area-inset-top));
   padding-left: max(10px, env(safe-area-inset-left));
   padding-right: max(10px, env(safe-area-inset-right));
   padding-bottom: 10px;
 
-  background: #333;
-  color: #fff;
-
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-
-  /* IMPORTANT: allows squeezing instead of overflow */
   flex-wrap: wrap;
 
-  /* responsive font */
   font-size: clamp(12px, 3.6vw, 18px);
   line-height: 1.15;
-
-  box-sizing: border-box;
 }
 
-/* bombs label should shrink nicely */
+/* bombs label */
 #bomb-count{
   flex: 1 1 auto;
   min-width: 90px;
@@ -54,10 +62,10 @@ body {
   text-overflow: ellipsis;
 }
 
-/* buttons: allow shrinking + wrapping on phone */
+/* buttons */
 #hud button{
-  flex: 0 1 auto;                 /* can shrink */
-  min-width: 0;                    /* critical for shrink in flex */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
 
   font-size: clamp(12px, 3.3vw, 16px);
@@ -68,44 +76,31 @@ body {
   background: #555;
   color: #fff;
 
-  cursor: pointer;
-
-  /* prevent giant labels from pushing off screen */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* on very narrow screens, let buttons take half width */
+/* very small screens: buttons wrap nicely */
 @media (max-width: 420px){
-  #hud button{
-    flex: 1 1 45%;
-  }
+  #hud button{ flex: 1 1 45%; }
 }
 
-/* --- Game container always starts BELOW HUD (JS sets exact padding) --- */
+/* ===== Game container (NO 100vw!) ===== */
 #game-container{
-  width: 100vw;
-  max-width: 100vw;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
-  padding-left: 10px;
-  padding-right: 10px;
-  box-sizing: border-box;
-
-  /* IMPORTANT: do NOT hardcode padding-top here */
-}
-
-
-#game-container{
-  width: 100vw;
-  max-width: 100vw;
   padding: 10px;
-  margin: 0 auto;
+
   user-select: none;
   -webkit-user-select: none;
 }
 
-h1 { margin: 8px 0 12px; text-align: center; }
+h1{
+  margin: 8px 0 12px;
+  text-align: center;
+}
 
 /* Board */
 #board{
@@ -130,5 +125,5 @@ h1 { margin: 8px 0 12px; text-align: center; }
   -webkit-user-select: none;
 }
 
-.cell.revealed { background: #fff; }
-.cell.flagged  { background: #ffe76a; color: #c40000; font-weight: bold; }
+.cell.revealed{ background: #fff; }
+.cell.flagged{ background: #ffe76a; color: #c40000; font-weight: bold; }

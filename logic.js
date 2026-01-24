@@ -21,8 +21,8 @@ if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
 }
 
-const ROWS = 50;
-const COLS = 25;
+const ROWS = 32;
+const COLS = 18;
 const NUM_MINES = Math.floor(ROWS * COLS * 0.15);
 
 let board = [];
@@ -57,12 +57,15 @@ function syncHudPadding(){
   const hud = document.getElementById("hud");
   const gc = document.getElementById("game-container");
   if (!hud || !gc) return;
+  gc.style.paddingTop = `${Math.ceil(hud.getBoundingClientRect().height + 10)}px`;
+}
 
-  // exact visible height of HUD
-  const h = hud.getBoundingClientRect().height;
+window.addEventListener("resize", syncHudPadding);
+window.addEventListener("orientationchange", syncHudPadding);
+document.addEventListener("DOMContentLoaded", syncHudPadding);
 
-  // put the game below it
-  gc.style.paddingTop = `${Math.ceil(h + 10)}px`;
+if (window.Telegram?.WebApp?.onEvent){
+  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
 }
 
 window.addEventListener("resize", syncHudPadding);
