@@ -12,7 +12,7 @@ html, body{
   padding: 0;
 
   /* IMPORTANT for Telegram Android fixed headers */
-  overflow-x: hidden;
+  overflow-x: visible;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -111,15 +111,14 @@ h1{
   gap: 2px;
   width: max-content;
   margin: 0 auto 30px;
-  touch-action: manipulation;
-
   transform-origin: 50% 50%;
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: pan-x pan-y;
 }
 
 /* initial zoomed-out state */
-#board.zoomed-out {
-  transform: scale(0.85);
+#board.zoomed-out{
+  transform: scale(var(--zoomOut, 0.85));
 }
 
 .cell{
