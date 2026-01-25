@@ -1,16 +1,13 @@
-// logic.js (v=20260125_CENTERFIT_150)
-// - True "fit whole board" zoom-out (works with scrolling)
-// - Centers board always (Telegram starts top-left otherwise)
-// - Restart recenters even if you scrolled before
-// - Locks camera during intro, unlocks after first reveal
-// - 150 mines hard mode
-// - Pointerup input to avoid killing scroll/pan
+// logic.js (v=20260125_150HARD_FINAL)
+// - Intro: fit whole board centered, scrolling locked
+// - First click: unlock scroll (X+Y), zoom in, center clicked cell
+// - After: pan freely; tap vs drag detection so panning doesn't trigger clicks
+// - Hard mode: 150 mines
 
 if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
 }
 
-// ===== Constants =====
 const ROWS = 32;
 const COLS = 18;
 const NUM_MINES = 150; // HARD MODE
@@ -21,35 +18,32 @@ const DIR8 = [
   [ 1,-1], [ 1,0], [ 1,1],
 ];
 
-// ===== State =====
 let board = [];
 let revealedCount = 0;
 
-let hasStarted = false;
-let mode = "reveal";
+let mode = "reveal";      // reveal | flag
 let minesExist = false;
 let safeZoneLocked = false;
 let gameOver = false;
 
-// lock input briefly while we animate zoom-in
-let isZoomAnimating = false;
+let hasStarted = false;       // first reveal not yet done
+let isZoomAnimating = false;  // locks clicks during intro zoom
+let dragState = null;         // tap-vs-drag
 
-// ===== DOM =====
 const boardEl = document.getElementById("board");
-const boardSizerEl = document.getElementById("board-sizer");
 const bombEl = document.getElementById("bomb-count");
 const toggleBtn = document.getElementById("toggle-mode");
 const restartBtn = document.getElementById("restart-btn");
 const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
 
-// ===== banner =====
+// ===== banner (optional) =====
 (() => {
   const b = document.createElement("div");
   b.style.cssText =
     "position:fixed;bottom:0;left:0;right:0;z-index:9999;" +
     "background:#ff006a;color:#fff;padding:6px 10px;font:14px Arial;";
-  b.textContent = "LOGIC.JS LOADED v=20260125_CENTERFIT_150";
+  b.textContent = "LOGIC.JS LOADED v=20260125_150HARD_FINAL";
   document.body.appendChild(b);
 })();
 
@@ -62,13 +56,13 @@ function syncHudPadding(){
 requestAnimationFrame(syncHudPadding);
 setTimeout(syncHudPadding, 60);
 
+window.addEventListener("resize", () => { syncHudPadding(); fitBoardToViewport(); });
+window.addEventListener("orientationchange", () => { syncHudPadding(); fitBoardToViewport(); });
 if (window.Telegram?.WebApp?.onEvent){
-  Telegram.WebApp.onEvent("viewportChanged", syncHudPadding);
+  Telegram.WebApp.onEvent("viewportChanged", () => { syncHudPadding(); fitBoardToViewport(); });
 }
-window.addEventListener("resize", syncHudPadding);
-window.addEventListener("orientationchange", syncHudPadding);
 
-// ===== Helpers =====
+// ===== helpers =====
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 
 function forEachNeighbor(r,c,fn){
@@ -78,22 +72,12 @@ function forEachNeighbor(r,c,fn){
   }
 }
 
-function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-
-function lockIntroCamera(){
-  gameContainer.classList.add("intro-lock");
-}
-function unlockCamera(){
-  gameContainer.classList.remove("intro-lock");
-}
-
 function createEmptyBoard(){
   board = Array.from({length: ROWS}, () =>
     Array.from({length: COLS}, () => ({
       mine:false, revealed:false, flagged:false, value:0
     }))
   );
-
   revealedCount = 0;
   minesExist = false;
   safeZoneLocked = false;
@@ -174,13 +158,12 @@ function updateBombHud(){
   bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
 
-// ===== Cell size =====
+// ===== sizing =====
 function syncCellSizeToScreen(){
   const margin = 20;
   const w = Math.max(
     window.innerWidth || 0,
     document.documentElement.clientWidth || 0,
-    screen.width || 0,
     360
   );
 
@@ -192,83 +175,43 @@ function syncCellSizeToScreen(){
   boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
 }
 
-// ===== THE IMPORTANT PART =====
-// Fit the entire board into the visible viewport and CENTER it.
-// Also sets #board-sizer size so scroll area matches the scaled board.
-function fitAndCenterZoomOut(){
+// ===== intro camera lock/unlock =====
+function lockIntroCamera(){
+  gameContainer.classList.add("intro-lock");
+  boardEl.classList.add("zoomed-out");
+}
+
+function unlockCamera(){
+  gameContainer.classList.remove("intro-lock");
+  boardEl.classList.remove("zoomed-out");
+}
+
+// ===== fit whole board in intro =====
+function fitBoardToViewport(){
+  if (!boardEl) return;
+
   requestAnimationFrame(() => {
-    // measure true board size (unscaled)
-    const wasZoomedOut = boardEl.classList.contains("zoomed-out");
+    // force board into unscaled state for measurement
+    const wasZoomed = boardEl.classList.contains("zoomed-out");
     boardEl.classList.remove("zoomed-out");
     boardEl.style.transform = "";
 
-    // force layout
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
 
-    // restore zoom class (we will set correct scale below)
-    if (wasZoomedOut) boardEl.classList.add("zoomed-out");
-
-    const viewW = gameContainer.clientWidth  - 20;
+    // available space inside camera viewport
+    const viewW = gameContainer.clientWidth - 20;
     const viewH = gameContainer.clientHeight - 20;
 
     let scale = Math.min(viewW / boardW, viewH / boardH) * 0.98;
+
     if (scale > 1) scale = 1;
-    if (scale < 0.08) scale = 0.08; // allow very far zoom-out to see whole board
+    if (scale < 0.12) scale = 0.12;
 
     document.documentElement.style.setProperty("--zoomOut", scale.toFixed(3));
 
-    const scaledW = Math.ceil(boardW * scale);
-    const scaledH = Math.ceil(boardH * scale);
-
-    // THIS makes the scroll area match what you actually SEE
-    boardSizerEl.style.width  = `${scaledW}px`;
-    boardSizerEl.style.height = `${scaledH}px`;
-
-    // Center camera inside the scroll container
-    const maxX = Math.max(0, scaledW - gameContainer.clientWidth);
-    const maxY = Math.max(0, scaledH - gameContainer.clientHeight);
-
-    gameContainer.scrollLeft = clamp((scaledW - gameContainer.clientWidth) / 2, 0, maxX);
-    gameContainer.scrollTop  = clamp((scaledH - gameContainer.clientHeight) / 2, 0, maxY);
-  });
-}
-
-// When zooming in, we need the sizer to become unscaled (scale = 1) so scrolling works.
-function setZoomInSizer(){
-  requestAnimationFrame(() => {
-    boardEl.classList.remove("zoomed-out");
-    boardEl.style.transform = "";
-
-    const boardW = boardEl.scrollWidth;
-    const boardH = boardEl.scrollHeight;
-
-    boardSizerEl.style.width  = `${boardW}px`;
-    boardSizerEl.style.height = `${boardH}px`;
-  });
-}
-
-// Center the clicked cell in the scroll camera (both axes)
-function centerOnCell(r, c){
-  const idx = r * COLS + c;
-  const cellEl = boardEl.querySelectorAll(".cell")[idx];
-  if (!cellEl) return;
-
-  requestAnimationFrame(() => {
-    const cx = cellEl.offsetLeft + cellEl.offsetWidth / 2;
-    const cy = cellEl.offsetTop  + cellEl.offsetHeight / 2;
-
-    const targetX = cx - gameContainer.clientWidth / 2;
-    const targetY = cy - gameContainer.clientHeight / 2;
-
-    const maxX = Math.max(0, boardSizerEl.scrollWidth - gameContainer.clientWidth);
-    const maxY = Math.max(0, boardSizerEl.scrollHeight - gameContainer.clientHeight);
-
-    gameContainer.scrollTo({
-      left: clamp(targetX, 0, maxX),
-      top:  clamp(targetY, 0, maxY),
-      behavior: "smooth"
-    });
+    // restore intro zoom state if needed
+    if (wasZoomed) boardEl.classList.add("zoomed-out");
   });
 }
 
@@ -277,6 +220,8 @@ function buildFieldDOM(){
   syncCellSizeToScreen();
 
   boardEl.innerHTML = "";
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
+
   const frag = document.createDocumentFragment();
 
   for (let r=0;r<ROWS;r++){
@@ -286,10 +231,13 @@ function buildFieldDOM(){
       el.dataset.r = String(r);
       el.dataset.c = String(c);
 
-      // Use pointerup so dragging/panning doesn't instantly trigger a cell
-      el.addEventListener("pointerup", onCellActivate);
+      // pointer events: use down/move/up so drag pans and tap clicks
+      el.addEventListener("pointerdown", onPointerDown, { passive: true });
+      el.addEventListener("pointermove", onPointerMove, { passive: true });
+      el.addEventListener("pointerup", onPointerUp, { passive: true });
+      el.addEventListener("pointercancel", () => { dragState = null; }, { passive: true });
 
-      // desktop right-click flag
+      // right click desktop
       el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
         if (gameOver) return;
@@ -303,18 +251,51 @@ function buildFieldDOM(){
 
   boardEl.appendChild(frag);
 
-  // Intro zoom-out state
+  // intro state
+  hasStarted = false;
+  isZoomAnimating = false;
   lockIntroCamera();
-  boardEl.classList.add("zoomed-out");
-
-  // IMPORTANT: reset scroll so restart doesn't inherit old camera
-  gameContainer.scrollLeft = 0;
-  gameContainer.scrollTop  = 0;
-
-  fitAndCenterZoomOut();
+  fitBoardToViewport();
 }
 
-// ===== Render =====
+// ===== pointer tap vs drag =====
+function onPointerDown(e){
+  if (gameOver || isZoomAnimating) return;
+
+  dragState = {
+    el: e.currentTarget,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false
+  };
+}
+
+function onPointerMove(e){
+  if (!dragState) return;
+
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+
+  if ((dx*dx + dy*dy) > (8*8)) {
+    dragState.moved = true; // treat as drag/pan
+  }
+}
+
+function onPointerUp(e){
+  if (!dragState) return;
+
+  // if dragged -> do nothing (let scroll container handle pan)
+  if (dragState.moved) {
+    dragState = null;
+    return;
+  }
+
+  // tap -> activate cell
+  onCellActivate(dragState.el);
+  dragState = null;
+}
+
+// ===== render =====
 function renderCell(el, r, c){
   const cell = board[r][c];
   el.classList.remove("revealed","flagged");
@@ -363,7 +344,7 @@ function winCheck(){
   }
 }
 
-// ===== Actions =====
+// ===== actions =====
 function toggleFlag(r,c){
   const cell = board[r][c];
   if (cell.revealed) return;
@@ -415,7 +396,7 @@ function reveal(r,c){
   winCheck();
 }
 
-// Quick logic
+// quick helpers
 function flaggedNeighbors(r,c){
   let f = 0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
@@ -483,45 +464,55 @@ function smartQuickAction(r, c){
   return false;
 }
 
-// ===== Input =====
-function onCellActivate(e){
-  if (gameOver) return;
+// ===== intro zoom-in =====
+function zoomIntoCell(r, c){
   if (isZoomAnimating) return;
+  isZoomAnimating = true;
 
-  const el = e.currentTarget;
-  const r = parseInt(el.dataset.r, 10);
-  const c = parseInt(el.dataset.c, 10);
+  const idx = r * COLS + c;
+  const cellEl = boardEl.querySelectorAll(".cell")[idx];
+
+  requestAnimationFrame(() => {
+    if (cellEl?.scrollIntoView){
+      cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }
+    setTimeout(() => { isZoomAnimating = false; }, 450);
+  });
+}
+
+// ===== tap activation =====
+function onCellActivate(cellDiv){
+  if (gameOver || isZoomAnimating) return;
+
+  const r = parseInt(cellDiv.dataset.r, 10);
+  const c = parseInt(cellDiv.dataset.c, 10);
   const cell = board[r][c];
 
   ensureMinefieldExists();
 
+  // revealed -> quick action
   if (cell.revealed){
     if (smartQuickAction(r, c)) renderAll();
     return;
   }
 
+  // flag mode
   if (mode === "flag"){
-    toggleFlag(r,c);
+    toggleFlag(r, c);
     renderAll();
     return;
   }
 
-  // First reveal: unlock camera + zoom in + center to clicked cell
+  // FIRST reveal: unlock camera + zoom in + center
   if (!hasStarted){
     hasStarted = true;
-    isZoomAnimating = true;
-
     unlockCamera();
-    setZoomInSizer();
-
-    // center camera to clicked cell after layout updates
-    setTimeout(() => {
-      centerOnCell(r, c);
-      isZoomAnimating = false;
-    }, 60);
+    // remove zoomed out so board becomes "full size"
+    boardEl.classList.remove("zoomed-out");
+    zoomIntoCell(r, c);
   }
 
-  reveal(r,c);
+  reveal(r, c);
   renderAll();
 }
 
@@ -543,24 +534,7 @@ restartBtn.addEventListener("click", ()=>{
   updateModeText();
 });
 
-// Resync (important for Telegram viewport changes)
-function resyncAll(){
-  syncCellSizeToScreen();
-  syncHudPadding();
-  if (!hasStarted){
-    boardEl.classList.add("zoomed-out");
-    fitAndCenterZoomOut();
-  } else {
-    setZoomInSizer();
-  }
-}
-window.addEventListener("resize", resyncAll);
-window.addEventListener("orientationchange", resyncAll);
-if (window.Telegram?.WebApp?.onEvent){
-  Telegram.WebApp.onEvent("viewportChanged", resyncAll);
-}
-
-// ===== INIT =====
+// ===== init =====
 createEmptyBoard();
 buildFieldDOM();
 renderAll();
