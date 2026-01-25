@@ -1,8 +1,10 @@
-// logic.js (v=20260125_150HARD_FINAL)
-// - Intro: fit whole board centered, scrolling locked
+// logic.js (v=20260125_150HARD_CENTERFIX)
+// - Intro: fit whole board visible + centered, scrolling locked
 // - First click: unlock scroll (X+Y), zoom in, center clicked cell
 // - After: pan freely; tap vs drag detection so panning doesn't trigger clicks
 // - Hard mode: 150 mines
+// - FIX: use --hudSpace (top offset) instead of paddingTop
+// - FIX: center camera using gameContainer scroll sizes (not board scrollWidth)
 
 if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
@@ -10,7 +12,7 @@ if (window.Telegram?.WebApp) {
 
 const ROWS = 32;
 const COLS = 18;
-const NUM_MINES = 150; // HARD MODE
+const NUM_MINES = 150;
 
 const DIR8 = [
   [-1,-1], [-1,0], [-1,1],
@@ -21,14 +23,14 @@ const DIR8 = [
 let board = [];
 let revealedCount = 0;
 
-let mode = "reveal";      // reveal | flag
+let mode = "reveal";
 let minesExist = false;
 let safeZoneLocked = false;
 let gameOver = false;
 
-let hasStarted = false;       // first reveal not yet done
-let isZoomAnimating = false;  // locks clicks during intro zoom
-let dragState = null;         // tap-vs-drag
+let hasStarted = false;
+let isZoomAnimating = false;
+let dragState = null;
 
 const boardEl = document.getElementById("board");
 const bombEl = document.getElementById("bomb-count");
@@ -37,29 +39,39 @@ const restartBtn = document.getElementById("restart-btn");
 const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
 
-// ===== banner (optional) =====
+// ===== optional banner =====
 (() => {
   const b = document.createElement("div");
   b.style.cssText =
     "position:fixed;bottom:0;left:0;right:0;z-index:9999;" +
     "background:#ff006a;color:#fff;padding:6px 10px;font:14px Arial;";
-  b.textContent = "LOGIC.JS LOADED v=20260125_150HARD_FINAL";
+  b.textContent = "LOGIC.JS LOADED v=20260125_150HARD_CENTERFIX";
   document.body.appendChild(b);
 })();
 
-// ===== HUD padding =====
-function syncHudPadding(){
-  if (!hudEl || !gameContainer) return;
-  const h = hudEl.getBoundingClientRect().height;
-  gameContainer.style.paddingTop = `${Math.ceil(h + 10)}px`;
+// ===== HUD -> set CSS var that moves the camera viewport down =====
+function syncHudSpace(){
+  if (!hudEl) return;
+  const h = Math.ceil(hudEl.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--hudSpace", `${h}px`);
 }
-requestAnimationFrame(syncHudPadding);
-setTimeout(syncHudPadding, 60);
 
-window.addEventListener("resize", () => { syncHudPadding(); fitBoardToViewport(); });
-window.addEventListener("orientationchange", () => { syncHudPadding(); fitBoardToViewport(); });
+// call multiple times (Telegram reports sizes late)
+function syncHudSpaceBurst(){
+  syncHudSpace();
+  requestAnimationFrame(syncHudSpace);
+  setTimeout(syncHudSpace, 60);
+  setTimeout(syncHudSpace, 250);
+}
+
+// keep in sync on changes
+window.addEventListener("resize", () => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); });
+window.addEventListener("orientationchange", () => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); });
 if (window.Telegram?.WebApp?.onEvent){
-  Telegram.WebApp.onEvent("viewportChanged", () => { syncHudPadding(); fitBoardToViewport(); });
+  Telegram.WebApp.onEvent("viewportChanged", () => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); });
+}
+if (window.ResizeObserver && hudEl){
+  new ResizeObserver(() => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); }).observe(hudEl);
 }
 
 // ===== helpers =====
@@ -161,11 +173,7 @@ function updateBombHud(){
 // ===== sizing =====
 function syncCellSizeToScreen(){
   const margin = 20;
-  const w = Math.max(
-    window.innerWidth || 0,
-    document.documentElement.clientWidth || 0,
-    360
-  );
+  const w = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0, 360);
 
   let cell = Math.floor((w - margin) / COLS);
   if (!Number.isFinite(cell) || cell < 14) cell = 14;
@@ -186,59 +194,59 @@ function unlockCamera(){
   boardEl.classList.remove("zoomed-out");
 }
 
+// ===== center camera (USE gameContainer scroll sizes) =====
+function centerCamera(){
+  requestAnimationFrame(() => {
+    const maxX = Math.max(0, gameContainer.scrollWidth  - gameContainer.clientWidth);
+    const maxY = Math.max(0, gameContainer.scrollHeight - gameContainer.clientHeight);
+    gameContainer.scrollLeft = Math.floor(maxX / 2);
+    gameContainer.scrollTop  = Math.floor(maxY / 2);
+  });
+}
+
 // ===== fit whole board in intro =====
 function fitBoardToViewport(){
-  if (!boardEl) return;
-
   requestAnimationFrame(() => {
-    // measure board unscaled
     const wasZoomed = boardEl.classList.contains("zoomed-out");
+
+    // measure unscaled board size
     boardEl.classList.remove("zoomed-out");
     boardEl.style.transform = "";
 
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
 
-    // restore zoom class
     if (wasZoomed) boardEl.classList.add("zoomed-out");
 
-    // available space inside camera viewport
-    const viewW = gameContainer.clientWidth - 20;
+    // IMPORTANT: gameContainer is already "below HUD" via top: --hudSpace
+    const viewW = gameContainer.clientWidth  - 20;
     const viewH = gameContainer.clientHeight - 20;
 
-    // base scale to fit whole board
     let scale = Math.min(viewW / boardW, viewH / boardH);
 
-    // 🔥 MAKE IT ZOOM OUT MORE (smaller than fit)
-    // 0.92 => 8% more zoom out; set to 0.85 if you want even smaller
-    scale *= 0.75;
+    // extra zoom-out (smaller than perfect fit). adjust if you want:
+    scale *= 0.75; // 0.85 => more zoomed-out than exact-fit
 
-    // allow more zoom out than before
     if (scale > 1) scale = 1;
     if (scale < 0.06) scale = 0.06;
 
     document.documentElement.style.setProperty("--zoomOut", scale.toFixed(3));
 
-    // ✅ reset camera to one position (center)
+    // after zoomOut applied, center scroll so board isn't stuck top-left
     centerCamera();
   });
 }
-function centerCamera(){
-  // wait a frame so browser applies transform
-  requestAnimationFrame(() => {
-    // Center the SCROLL position based on *unscaled* board size.
-    // Even though transform doesn't change layout, this gives a consistent "one position".
-    const maxX = boardEl.scrollWidth - gameContainer.clientWidth;
-    const maxY = boardEl.scrollHeight - gameContainer.clientHeight;
 
-    gameContainer.scrollLeft = Math.max(0, Math.floor(maxX / 2));
-    gameContainer.scrollTop  = Math.max(0, Math.floor(maxY / 2));
-  });
+// If we’re still in intro (hasStarted=false), keep it fit+center on resizes
+function refitAndCenterIntroIfNeeded(){
+  if (!hasStarted){
+    fitBoardToViewport();
+  }
 }
-
 
 // ===== DOM build =====
 function buildFieldDOM(){
+  syncHudSpaceBurst();     // ensure camera viewport is correct first
   syncCellSizeToScreen();
 
   boardEl.innerHTML = "";
@@ -253,13 +261,11 @@ function buildFieldDOM(){
       el.dataset.r = String(r);
       el.dataset.c = String(c);
 
-      // pointer events: use down/move/up so drag pans and tap clicks
       el.addEventListener("pointerdown", onPointerDown, { passive: true });
       el.addEventListener("pointermove", onPointerMove, { passive: true });
       el.addEventListener("pointerup", onPointerUp, { passive: true });
       el.addEventListener("pointercancel", () => { dragState = null; }, { passive: true });
 
-      // right click desktop
       el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
         if (gameOver) return;
@@ -273,11 +279,16 @@ function buildFieldDOM(){
 
   boardEl.appendChild(frag);
 
-  // intro state
   hasStarted = false;
   isZoomAnimating = false;
   lockIntroCamera();
+
+  // reset scroll to deterministic position, then fit+center
+  gameContainer.scrollLeft = 0;
+  gameContainer.scrollTop  = 0;
+
   fitBoardToViewport();
+  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 120); // Telegram late layout
 }
 
 // ===== pointer tap vs drag =====
@@ -294,25 +305,17 @@ function onPointerDown(e){
 
 function onPointerMove(e){
   if (!dragState) return;
-
   const dx = e.clientX - dragState.startX;
   const dy = e.clientY - dragState.startY;
-
-  if ((dx*dx + dy*dy) > (8*8)) {
-    dragState.moved = true; // treat as drag/pan
-  }
+  if ((dx*dx + dy*dy) > (8*8)) dragState.moved = true;
 }
 
-function onPointerUp(e){
+function onPointerUp(){
   if (!dragState) return;
-
-  // if dragged -> do nothing (let scroll container handle pan)
-  if (dragState.moved) {
+  if (dragState.moved){
     dragState = null;
     return;
   }
-
-  // tap -> activate cell
   onCellActivate(dragState.el);
   dragState = null;
 }
@@ -418,7 +421,6 @@ function reveal(r,c){
   winCheck();
 }
 
-// quick helpers
 function flaggedNeighbors(r,c){
   let f = 0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
@@ -512,24 +514,20 @@ function onCellActivate(cellDiv){
 
   ensureMinefieldExists();
 
-  // revealed -> quick action
   if (cell.revealed){
     if (smartQuickAction(r, c)) renderAll();
     return;
   }
 
-  // flag mode
   if (mode === "flag"){
     toggleFlag(r, c);
     renderAll();
     return;
   }
 
-  // FIRST reveal: unlock camera + zoom in + center
   if (!hasStarted){
     hasStarted = true;
     unlockCamera();
-    // remove zoomed out so board becomes "full size"
     boardEl.classList.remove("zoomed-out");
     zoomIntoCell(r, c);
   }
@@ -549,24 +547,18 @@ toggleBtn.addEventListener("click", ()=>{
 });
 
 restartBtn.addEventListener("click", ()=>{
-  // hard reset camera first so old scroll never affects anything
-  gameContainer.scrollLeft = 0;
-  gameContainer.scrollTop  = 0;
-
   createEmptyBoard();
   buildFieldDOM();
   renderAll();
-  syncHudPadding();
   updateModeText();
 
-  // recompute zoom + center
-  fitBoardToViewport();
+  // refit again (Telegram late), only if still intro
+  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 200);
 });
 
-
 // ===== init =====
+syncHudSpaceBurst();
 createEmptyBoard();
 buildFieldDOM();
 renderAll();
 updateModeText();
-syncHudPadding();

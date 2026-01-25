@@ -79,14 +79,16 @@ body{
 /* ===== Scroll / Pan viewport ===== */
 #game-container{
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  padding: 10px;               /* JS adds paddingTop for HUD */
-  overflow: auto;              /* THIS is the camera */
+  left: 0; right: 0; bottom: 0;
+  top: var(--hudSpace, 0px);      /* <-- this is the spacer */
+  padding: 10px;
+
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-
-  touch-action: pan-x pan-y;   /* allow both axes panning */
+  touch-action: pan-x pan-y;
 }
+
 
 /* Intro: lock camera */
 #game-container.intro-lock{
