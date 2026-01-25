@@ -39,20 +39,6 @@ const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
 
 // ===== banner (disable if you want) =====
-const SHOW_BANNER = true;
-if (SHOW_BANNER) {
-  const b = document.createElement("div");
-  b.id = "ver-banner";
-  b.style.cssText =
-    "position:fixed;left:0;right:0;top:auto;" +
-    "bottom:env(safe-area-inset-bottom,0px);" +
-    "inset:auto 0 0 0;" +
-    "z-index:999999;background:#ff006a;color:#fff;" +
-    "padding:6px 10px;font:14px Arial;" +
-    "pointer-events:none;transform:translateZ(0);";
-  b.textContent = "LOGIC.JS LOADED v=20260125_150HARD_CENTERFIX_2";
-  document.body.appendChild(b);
-}
 
 // ===== HUD -> set CSS var that moves the camera viewport down =====
 function syncHudSpace(){
