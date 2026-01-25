@@ -1,15 +1,9 @@
-// logic.js (v=20260124_2) — cleaned + mobile-ready + single-tap quick actions
-// Features:
-// - HUD pinned + JS auto padding under HUD
-// - Field ALWAYS renders
-// - One-click actions based on mode toggle (reveal/flag)
-// - Single-tap quick mapping/quick flagging on revealed cells:
-//    * If remaining hidden neighbors MUST be bombs -> auto-flag them
-//    * If bombs already flagged -> auto-reveal the rest
-//    * If revealed 0 -> reveal neighbors (mobile speed)
-// - Minefield exists immediately (even if you start by flagging)  ✅
-// - First reveal is safe: 3x3 safe zone enforced by relocating mines
-// - Telegram Mini App: ready/expand and reacts to viewportChanged
+// logic.js (v=20260124_3) — mobile-safe + single-tap quick actions + intro zoom
+// Key fixes vs v_2:
+// - NO translate() zoom (Android WebView tap desync fix)
+// - input locked during zoom
+// - pointerdown single source of truth
+// - cleaned duplicated listeners
 
 // ===== Telegram Mini App =====
 if (window.Telegram?.WebApp) {
@@ -31,9 +25,11 @@ const DIR8 = [
 let board = [];
 let revealedCount = 0;
 
-let mode = "reveal";         // "reveal" | "flag"
-let minesExist = false;      // mines placed even if first action is flag
-let safeZoneLocked = false;  // safe zone enforced on first reveal
+let hasStarted = false;        // first reveal not yet done
+let isZoomAnimating = false;   // lock input during intro
+let mode = "reveal";           // "reveal" | "flag"
+let minesExist = false;        // mines placed even if first action is flag
+let safeZoneLocked = false;    // safe zone enforced on first reveal
 let gameOver = false;
 
 // ===== DOM =====
@@ -51,7 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
     `<div id="ver-banner" style="
       position:fixed;bottom:0;left:0;right:0;z-index:9999;
       background:#ff006a;color:#fff;padding:6px 10px;
-      font:14px Arial;">LOGIC.JS LOADED v=20260124_2</div>`
+      font:14px Arial;">LOGIC.JS LOADED v=20260124_3</div>`
   );
 });
 
@@ -90,6 +86,9 @@ function createEmptyBoard(){
   minesExist = false;
   safeZoneLocked = false;
   gameOver = false;
+
+  hasStarted = false;
+  isZoomAnimating = false;
 }
 
 function placeMinesAnywhere(){
@@ -107,7 +106,6 @@ function ensureMinefieldExists(){
   if (!minesExist){
     minesExist = true;
     placeMinesAnywhere();
-    // values computed after first reveal safe-zone is enforced
   }
 }
 
@@ -197,8 +195,8 @@ function buildFieldDOM(){
       el.dataset.r = String(r);
       el.dataset.c = String(c);
 
+      // single-tap: pointerdown is best for Telegram Android
       el.addEventListener("pointerdown", (e) => {
-        // On touch, prevent "ghost click"/scroll quirks
         if (e.pointerType === "touch") e.preventDefault();
         onCellActivate(e);
       });
@@ -216,6 +214,29 @@ function buildFieldDOM(){
   }
 
   boardEl.appendChild(frag);
+
+  // intro state
+  boardEl.classList.add("zoomed-out");
+  hasStarted = false;
+  isZoomAnimating = false;
+}
+
+// Mobile-safe intro zoom: remove zoomed-out + scroll clicked cell into center.
+// (No translate() => no tap desync on Android WebView.)
+function zoomIntoCell(r, c){
+  if (isZoomAnimating) return;
+  isZoomAnimating = true;
+
+  const cellIndex = r * COLS + c;
+  const cellEl = boardEl.querySelectorAll(".cell")[cellIndex];
+
+  boardEl.classList.remove("zoomed-out");
+
+  if (cellEl?.scrollIntoView) {
+    cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+  }
+
+  setTimeout(() => { isZoomAnimating = false; }, 450);
 }
 
 function renderCell(el, r, c){
@@ -354,11 +375,7 @@ function chordReveal(r,c){
   winCheck();
 }
 
-// Single tap on revealed cell:
-// - if forced bombs -> flag
-// - if bombs satisfied -> reveal
-// - if value 0 -> reveal neighbors (speed)
-function smartQuickAction(r, c) {
+function smartQuickAction(r, c){
   const cell = board[r][c];
   if (!cell.revealed) return false;
 
@@ -366,23 +383,23 @@ function smartQuickAction(r, c) {
   const hiddenUnflagged = hiddenUnflaggedNeighbors(r, c);
 
   // Forced bombs
-  if (cell.value > 0) {
+  if (cell.value > 0){
     const need = cell.value - flagged;
-    if (need > 0 && need === hiddenUnflagged.length) {
+    if (need > 0 && need === hiddenUnflagged.length){
       for (const [nr, nc] of hiddenUnflagged) board[nr][nc].flagged = true;
       return true;
     }
 
     // Forced safe reveals
-    if (flagged === cell.value) {
+    if (flagged === cell.value){
       chordReveal(r, c);
       return true;
     }
   }
 
   // Speed tap on 0
-  if (cell.value === 0 && hiddenUnflagged.length > 0) {
-    for (const [nr, nc] of hiddenUnflagged) {
+  if (cell.value === 0 && hiddenUnflagged.length > 0){
+    for (const [nr, nc] of hiddenUnflagged){
       reveal(nr, nc);
       if (gameOver) return true;
     }
@@ -395,6 +412,7 @@ function smartQuickAction(r, c) {
 // ===== Input handler =====
 function onCellActivate(e){
   if (gameOver) return;
+  if (isZoomAnimating) return; // IMPORTANT mobile fix
 
   const el = e.currentTarget;
   const r = parseInt(el.dataset.r, 10);
@@ -402,18 +420,27 @@ function onCellActivate(e){
   const cell = board[r][c];
 
   // Mines exist even if first action is flag
-  if (!minesExist) ensureMinefieldExists();
+  ensureMinefieldExists();
 
   // Tap revealed cell => smart quick action
-  if (cell.revealed) {
+  if (cell.revealed){
     if (smartQuickAction(r, c)) renderAll();
     return;
   }
 
   // Normal action
-  if (mode === "flag") toggleFlag(r,c);
-  else reveal(r,c);
+  if (mode === "flag"){
+    toggleFlag(r,c);
+    renderAll();
+    return;
+  }
 
+  // reveal mode
+  if (!hasStarted){
+    hasStarted = true;
+    zoomIntoCell(r, c);
+  }
+  reveal(r,c);
   renderAll();
 }
 
