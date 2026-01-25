@@ -1,9 +1,10 @@
-// logic.js (v=20260125_150HARD_CENTERFIX_2)
-// Fixes:
-// - Zoom-in centering is MANUAL (no scrollIntoView) -> no Telegram top-left bias
-// - Intro-fit still works
-// - Restart always recenters
-// - Banner fixed for Telegram Desktop (or you can disable it)
+// logic.js (v=20260125_150HARD_CENTERFIX)
+// - Intro: fit whole board visible + centered, scrolling locked
+// - First click: unlock scroll (X+Y), zoom in, center clicked cell
+// - After: pan freely; tap vs drag detection so panning doesn't trigger clicks
+// - Hard mode: 150 mines
+// - FIX: use --hudSpace (top offset) instead of paddingTop
+// - FIX: center camera using gameContainer scroll sizes (not board scrollWidth)
 
 if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
@@ -38,7 +39,15 @@ const restartBtn = document.getElementById("restart-btn");
 const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
 
-// ===== banner (disable if you want) =====
+// ===== optional banner =====
+(() => {
+  const b = document.createElement("div");
+  b.style.cssText =
+    "position:fixed;bottom:0;left:0;right:0;z-index:9999;" +
+    "background:#ff006a;color:#fff;padding:6px 10px;font:14px Arial;";
+  b.textContent = "LOGIC.JS LOADED v=20260125_150HARD_CENTERFIX";
+  document.body.appendChild(b);
+})();
 
 // ===== HUD -> set CSS var that moves the camera viewport down =====
 function syncHudSpace(){
@@ -47,6 +56,7 @@ function syncHudSpace(){
   document.documentElement.style.setProperty("--hudSpace", `${h}px`);
 }
 
+// call multiple times (Telegram reports sizes late)
 function syncHudSpaceBurst(){
   syncHudSpace();
   requestAnimationFrame(syncHudSpace);
@@ -54,6 +64,7 @@ function syncHudSpaceBurst(){
   setTimeout(syncHudSpace, 250);
 }
 
+// keep in sync on changes
 window.addEventListener("resize", () => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); });
 window.addEventListener("orientationchange", () => { syncHudSpaceBurst(); refitAndCenterIntroIfNeeded(); });
 if (window.Telegram?.WebApp?.onEvent){
@@ -183,7 +194,7 @@ function unlockCamera(){
   boardEl.classList.remove("zoomed-out");
 }
 
-// ===== center camera using SCROLLABLE SIZE of gameContainer =====
+// ===== center camera (USE gameContainer scroll sizes) =====
 function centerCamera(){
   requestAnimationFrame(() => {
     const maxX = Math.max(0, gameContainer.scrollWidth  - gameContainer.clientWidth);
@@ -193,38 +204,12 @@ function centerCamera(){
   });
 }
 
-// ===== MANUAL center on a cell (no scrollIntoView) =====
-function centerOnCell(r, c){
-  const cellSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cell")) || 18;
-  const gap = 2; // your grid gap in CSS
-  const pitch = cellSize + gap;
-
-  // cell center in board coordinates
-  const targetX = (c * pitch) + cellSize / 2;
-  const targetY = (r * pitch) + cellSize / 2;
-
-  // where to scroll so that target center is centered in viewport
-  const viewW = gameContainer.clientWidth;
-  const viewH = gameContainer.clientHeight;
-
-  let left = Math.round(targetX - viewW / 2);
-  let top  = Math.round(targetY - viewH / 2);
-
-  // clamp
-  const maxLeft = Math.max(0, gameContainer.scrollWidth  - viewW);
-  const maxTop  = Math.max(0, gameContainer.scrollHeight - viewH);
-  if (left < 0) left = 0; if (left > maxLeft) left = maxLeft;
-  if (top  < 0) top  = 0; if (top  > maxTop)  top  = maxTop;
-
-  gameContainer.scrollLeft = left;
-  gameContainer.scrollTop  = top;
-}
-
 // ===== fit whole board in intro =====
 function fitBoardToViewport(){
   requestAnimationFrame(() => {
     const wasZoomed = boardEl.classList.contains("zoomed-out");
 
+    // measure unscaled board size
     boardEl.classList.remove("zoomed-out");
     boardEl.style.transform = "";
 
@@ -233,30 +218,35 @@ function fitBoardToViewport(){
 
     if (wasZoomed) boardEl.classList.add("zoomed-out");
 
+    // IMPORTANT: gameContainer is already "below HUD" via top: --hudSpace
     const viewW = gameContainer.clientWidth  - 20;
     const viewH = gameContainer.clientHeight - 20;
 
     let scale = Math.min(viewW / boardW, viewH / boardH);
 
-    // more zoom out (smaller) -> tweak this if you want even more:
-    scale *= 0.85;
+    // extra zoom-out (smaller than perfect fit). adjust if you want:
+    scale *= 0.75; // 0.85 => more zoomed-out than exact-fit
 
     if (scale > 1) scale = 1;
     if (scale < 0.06) scale = 0.06;
 
     document.documentElement.style.setProperty("--zoomOut", scale.toFixed(3));
 
+    // after zoomOut applied, center scroll so board isn't stuck top-left
     centerCamera();
   });
 }
 
+// If we’re still in intro (hasStarted=false), keep it fit+center on resizes
 function refitAndCenterIntroIfNeeded(){
-  if (!hasStarted) fitBoardToViewport();
+  if (!hasStarted){
+    fitBoardToViewport();
+  }
 }
 
 // ===== DOM build =====
 function buildFieldDOM(){
-  syncHudSpaceBurst();
+  syncHudSpaceBurst();     // ensure camera viewport is correct first
   syncCellSizeToScreen();
 
   boardEl.innerHTML = "";
@@ -293,29 +283,39 @@ function buildFieldDOM(){
   isZoomAnimating = false;
   lockIntroCamera();
 
-  // deterministic scroll start
+  // reset scroll to deterministic position, then fit+center
   gameContainer.scrollLeft = 0;
   gameContainer.scrollTop  = 0;
 
   fitBoardToViewport();
-  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 160);
-  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 320);
+  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 120); // Telegram late layout
 }
 
 // ===== pointer tap vs drag =====
 function onPointerDown(e){
   if (gameOver || isZoomAnimating) return;
-  dragState = { el: e.currentTarget, startX: e.clientX, startY: e.clientY, moved: false };
+
+  dragState = {
+    el: e.currentTarget,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false
+  };
 }
+
 function onPointerMove(e){
   if (!dragState) return;
   const dx = e.clientX - dragState.startX;
   const dy = e.clientY - dragState.startY;
   if ((dx*dx + dy*dy) > (8*8)) dragState.moved = true;
 }
+
 function onPointerUp(){
   if (!dragState) return;
-  if (dragState.moved) { dragState = null; return; }
+  if (dragState.moved){
+    dragState = null;
+    return;
+  }
   onCellActivate(dragState.el);
   dragState = null;
 }
@@ -334,6 +334,7 @@ function renderCell(el, r, c){
     el.textContent = "🚩";
   }
 }
+
 function renderAll(){
   const cells = boardEl.querySelectorAll(".cell");
   let i = 0;
@@ -344,6 +345,7 @@ function renderAll(){
   }
   updateBombHud();
 }
+
 function revealAllMines(){
   for (let r=0;r<ROWS;r++){
     for (let c=0;c<COLS;c++){
@@ -351,12 +353,14 @@ function revealAllMines(){
     }
   }
 }
+
 function lose(){
   gameOver = true;
   revealAllMines();
   renderAll();
   setTimeout(()=>alert("Game Over!"), 10);
 }
+
 function winCheck(){
   if (revealedCount === ROWS*COLS - NUM_MINES){
     gameOver = true;
@@ -371,6 +375,7 @@ function toggleFlag(r,c){
   if (cell.revealed) return;
   cell.flagged = !cell.flagged;
 }
+
 function floodReveal(sr, sc){
   const stack = [[sr, sc]];
   while (stack.length){
@@ -391,6 +396,7 @@ function floodReveal(sr, sc){
     }
   }
 }
+
 function reveal(r,c){
   const cell = board[r][c];
   if (cell.revealed || cell.flagged) return;
@@ -414,11 +420,13 @@ function reveal(r,c){
 
   winCheck();
 }
+
 function flaggedNeighbors(r,c){
   let f = 0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
   return f;
 }
+
 function hiddenUnflaggedNeighbors(r,c){
   const out = [];
   forEachNeighbor(r,c,(nr,nc)=>{
@@ -427,6 +435,7 @@ function hiddenUnflaggedNeighbors(r,c){
   });
   return out;
 }
+
 function chordReveal(r,c){
   const cell = board[r][c];
   if (!cell.revealed || cell.value <= 0) return;
@@ -435,13 +444,18 @@ function chordReveal(r,c){
   const targets = hiddenUnflaggedNeighbors(r,c);
   for (const [nr,nc] of targets){
     const n = board[nr][nc];
-    if (n.mine){ n.revealed = true; lose(); return; }
+    if (n.mine){
+      n.revealed = true;
+      lose();
+      return;
+    }
     if (n.value === 0) floodReveal(nr,nc);
     else if (!n.revealed){ n.revealed = true; revealedCount++; }
     if (gameOver) return;
   }
   winCheck();
 }
+
 function smartQuickAction(r, c){
   const cell = board[r][c];
   if (!cell.revealed) return false;
@@ -474,14 +488,19 @@ function smartQuickAction(r, c){
   return false;
 }
 
-// ===== zoom-in (manual center) =====
+// ===== intro zoom-in =====
 function zoomIntoCell(r, c){
   if (isZoomAnimating) return;
   isZoomAnimating = true;
 
+  const idx = r * COLS + c;
+  const cellEl = boardEl.querySelectorAll(".cell")[idx];
+
   requestAnimationFrame(() => {
-    centerOnCell(r, c); // reliable in Telegram
-    setTimeout(() => { isZoomAnimating = false; }, 300);
+    if (cellEl?.scrollIntoView){
+      cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }
+    setTimeout(() => { isZoomAnimating = false; }, 450);
   });
 }
 
@@ -521,15 +540,20 @@ function onCellActivate(cellDiv){
 function updateModeText(){
   toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";
 }
+
 toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
   updateModeText();
 });
+
 restartBtn.addEventListener("click", ()=>{
   createEmptyBoard();
   buildFieldDOM();
   renderAll();
   updateModeText();
+
+  // refit again (Telegram late), only if still intro
+  setTimeout(() => { if (!hasStarted) fitBoardToViewport(); }, 200);
 });
 
 // ===== init =====
