@@ -1,18 +1,15 @@
 * { box-sizing: border-box; }
 
 :root{
-  --cell: 18px; /* fallback */
-  --hud-h: 56px; /* base HUD height */
+  --cell: 18px;       /* set by JS */
+  --zoomOut: 0.6;     /* set by JS */
 }
 
 html, body{
   height: 100%;
-  width: 100%;
   margin: 0;
   padding: 0;
-
-  /* IMPORTANT for Telegram Android fixed headers */
-  overflow-x: visible;
+  overflow: hidden;              /* IMPORTANT: page never scrolls */
   -webkit-text-size-adjust: 100%;
 }
 
@@ -21,15 +18,12 @@ body{
   background: #f4f4f4;
 }
 
-/* ===== HUD: pinned + Telegram-Android stable ===== */
+/* ===== HUD ===== */
 #hud{
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   z-index: 99999;
 
-  /* compositing: helps fixed behave on Android WebView */
   transform: translateZ(0);
   will-change: transform;
 
@@ -51,18 +45,15 @@ body{
   line-height: 1.15;
 }
 
-/* bombs label */
 #bomb-count{
   flex: 1 1 auto;
   min-width: 90px;
   text-align: left;
-
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* buttons */
 #hud button{
   flex: 0 1 auto;
   min-width: 0;
@@ -81,28 +72,34 @@ body{
   text-overflow: ellipsis;
 }
 
-/* very small screens: buttons wrap nicely */
 @media (max-width: 420px){
   #hud button{ flex: 1 1 45%; }
 }
 
-/* ===== Game container (NO 100vw!) ===== */
+/* ===== Scroll / Pan viewport ===== */
 #game-container{
-  width: 100%;
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 10px;
-
-  user-select: none;
-  -webkit-user-select: none;
-
-  overflow: auto;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 10px;               /* JS adds paddingTop for HUD */
+  overflow: auto;              /* THIS is the camera */
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+
+  touch-action: pan-x pan-y;   /* allow both axes panning */
 }
-h1{
-  margin: 8px 0 12px;
-  text-align: center;
+
+/* Intro: lock camera */
+#game-container.intro-lock{
+  overflow: hidden !important;
+  touch-action: none !important;
+}
+
+/* Centers board when zoomed out */
+#board-wrap{
+  min-width: 100%;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
 }
 
 /* Board */
@@ -110,15 +107,14 @@ h1{
   display: grid;
   gap: 2px;
   width: max-content;
-  margin: 0 auto 30px;
-  transform-origin: 50% 50%;
+
+  transform-origin: center center;
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
-  touch-action: pan-x pan-y;
 }
 
-/* initial zoomed-out state */
+/* Zoomed-out preview */
 #board.zoomed-out{
-  transform: scale(var(--zoomOut, 0.85));
+  transform: scale(var(--zoomOut));
 }
 
 .cell{
@@ -126,14 +122,21 @@ h1{
   height: var(--cell);
   background: #ddd;
   border: 1px solid #c7c7c7;
+
   display: flex;
   align-items: center;
   justify-content: center;
+
   font-size: calc(var(--cell) * 0.55);
   line-height: 1;
+
   user-select: none;
   -webkit-user-select: none;
 }
 
 .cell.revealed{ background: #fff; }
-.cell.flagged{ background: #ffe76a; color: #c40000; font-weight: bold; }
+.cell.flagged{
+  background: #ffe76a;
+  color: #c40000;
+  font-weight: bold;
+}
