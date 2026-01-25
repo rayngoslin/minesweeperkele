@@ -191,7 +191,7 @@ function fitBoardToViewport(){
   if (!boardEl) return;
 
   requestAnimationFrame(() => {
-    // force board into unscaled state for measurement
+    // measure board unscaled
     const wasZoomed = boardEl.classList.contains("zoomed-out");
     boardEl.classList.remove("zoomed-out");
     boardEl.style.transform = "";
@@ -199,21 +199,43 @@ function fitBoardToViewport(){
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
 
+    // restore zoom class
+    if (wasZoomed) boardEl.classList.add("zoomed-out");
+
     // available space inside camera viewport
     const viewW = gameContainer.clientWidth - 20;
     const viewH = gameContainer.clientHeight - 20;
 
-    let scale = Math.min(viewW / boardW, viewH / boardH) * 0.98;
+    // base scale to fit whole board
+    let scale = Math.min(viewW / boardW, viewH / boardH);
 
+    // 🔥 MAKE IT ZOOM OUT MORE (smaller than fit)
+    // 0.92 => 8% more zoom out; set to 0.85 if you want even smaller
+    scale *= 0.75;
+
+    // allow more zoom out than before
     if (scale > 1) scale = 1;
-    if (scale < 0.12) scale = 0.12;
+    if (scale < 0.06) scale = 0.06;
 
     document.documentElement.style.setProperty("--zoomOut", scale.toFixed(3));
 
-    // restore intro zoom state if needed
-    if (wasZoomed) boardEl.classList.add("zoomed-out");
+    // ✅ reset camera to one position (center)
+    centerCamera();
   });
 }
+function centerCamera(){
+  // wait a frame so browser applies transform
+  requestAnimationFrame(() => {
+    // Center the SCROLL position based on *unscaled* board size.
+    // Even though transform doesn't change layout, this gives a consistent "one position".
+    const maxX = boardEl.scrollWidth - gameContainer.clientWidth;
+    const maxY = boardEl.scrollHeight - gameContainer.clientHeight;
+
+    gameContainer.scrollLeft = Math.max(0, Math.floor(maxX / 2));
+    gameContainer.scrollTop  = Math.max(0, Math.floor(maxY / 2));
+  });
+}
+
 
 // ===== DOM build =====
 function buildFieldDOM(){
@@ -527,12 +549,20 @@ toggleBtn.addEventListener("click", ()=>{
 });
 
 restartBtn.addEventListener("click", ()=>{
+  // hard reset camera first so old scroll never affects anything
+  gameContainer.scrollLeft = 0;
+  gameContainer.scrollTop  = 0;
+
   createEmptyBoard();
   buildFieldDOM();
   renderAll();
   syncHudPadding();
   updateModeText();
+
+  // recompute zoom + center
+  fitBoardToViewport();
 });
+
 
 // ===== init =====
 createEmptyBoard();
