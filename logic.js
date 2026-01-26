@@ -1,11 +1,9 @@
-// logic.js (v=20260126_CAMERA_ZOOM_PAN)
-// - Intro: board fully visible + centered (extra zoom-out)
-// - Restart: resets scroll to center + recalcs zoom-out
-// - PC: wheel zoom, RMB drag pan
-// - Mobile: one-finger drag pan, two-finger pinch zoom
-// - No translate() camera (prevents TG Android desync)
-// - Gameplay: tap vs drag detection so panning doesn't click cells
-// - Hard mode: 150 mines
+// logic.js (v=20260126_SMOOTH_SAFE_INPUT)
+// - Open cells ONLY on left click / tap
+// - RMB = pan on PC (ONLY after first click)
+// - Mobile pan = press+hold then drag (ONLY after first click)
+// - Wheel zoom + pinch zoom smooth; never triggers cell
+// - Intro: no movement/zoom/pan; board centered + fully visible
 
 if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
@@ -21,7 +19,6 @@ const DIR8 = [
   [ 1,-1], [ 1,0], [ 1,1],
 ];
 
-// ===== State =====
 let board = [];
 let revealedCount = 0;
 
@@ -30,16 +27,26 @@ let minesExist = false;
 let safeZoneLocked = false;
 let gameOver = false;
 
-let hasStarted = false;       // first reveal not yet done
+let hasStarted = false;
 
-// ===== Camera (zoom/pan) =====
-let zoom = 1;                 // current zoom
-const ZOOM_MIN = 0.08;
+// ===== Camera =====
+let zoom = 1;
+const ZOOM_MIN = 0.10;
 const ZOOM_MAX = 3.0;
 
-let pointers = new Map();     // pointerId -> {x,y}
-let pinch = null;             // {startDist, startZoom}
-let pan = null;               // {id, startX, startY, startLeft, startTop, moved}
+// smooth wheel
+let wheelRAF = 0;
+let wheelTargetZoom = 1;
+
+// gesture state
+let pointers = new Map(); // pointerId -> {x,y}
+let pinch = null;         // {startDist, startZoom, cx, cy}
+let suppressTapUntil = 0;
+
+let panState = null;      // for RMB pan / mobile hold-pan
+let holdTimer = 0;
+const HOLD_TO_PAN_MS = 140;     // mobile "hold to pan"
+const MOVE_THRESH_PX = 10;
 
 // ===== DOM =====
 const boardEl = document.getElementById("board");
@@ -49,17 +56,10 @@ const restartBtn = document.getElementById("restart-btn");
 const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
 
-// ===== optional banner =====
-(() => {
-  const b = document.createElement("div");
-  b.style.cssText =
-    "position:fixed;bottom:0;left:0;right:0;z-index:9999;" +
-    "background:#ff006a;color:#fff;padding:6px 10px;font:14px Arial;";
-  b.textContent = "LOGIC.JS LOADED v=20260126_CAMERA_ZOOM_PAN";
-  document.body.appendChild(b);
-})();
+// stop context menu everywhere (RMB is pan)
+document.addEventListener("contextmenu", (e) => e.preventDefault(), { capture: true });
 
-// ===== HUD spacer -> CSS var =====
+// ===== HUD spacer =====
 function syncHudSpace(){
   if (!hudEl) return;
   const h = Math.ceil(hudEl.getBoundingClientRect().height);
@@ -81,6 +81,9 @@ if (window.Telegram?.WebApp?.onEvent){
 }
 
 // ===== Helpers =====
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function now(){ return Date.now(); }
+
 function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLS; }
 function forEachNeighbor(r,c,fn){
   for (const [dr,dc] of DIR8){
@@ -89,7 +92,7 @@ function forEachNeighbor(r,c,fn){
   }
 }
 
-// ===== Game init =====
+// ===== Game =====
 function createEmptyBoard(){
   board = Array.from({length: ROWS}, () =>
     Array.from({length: COLS}, () => ({ mine:false, revealed:false, flagged:false, value:0 }))
@@ -119,7 +122,6 @@ function ensureMinefieldExists(){
   }
 }
 
-// 3x3 safe zone around first reveal
 function enforceSafeZone(sr, sc){
   const safe = new Set();
   for (let r=sr-1;r<=sr+1;r++){
@@ -161,106 +163,68 @@ function calcValues(){
 
 function countFlags(){
   let f=0;
-  for (let r=0;r<ROWS;r++){
-    for (let c=0;c<COLS;c++){
-      if (board[r][c].flagged) f++;
-    }
-  }
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) if (board[r][c].flagged) f++;
   return f;
 }
+
 function updateBombHud(){
   bombEl.textContent = `Bombs: ${NUM_MINES - countFlags()}`;
 }
 
-// ===== Responsive cell size =====
+// ===== Responsive cells =====
 function syncCellSizeToScreen(){
   const margin = 20;
   const w = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0, 360);
-
   let cell = Math.floor((w - margin) / COLS);
   if (!Number.isFinite(cell) || cell < 14) cell = 14;
   if (cell > 32) cell = 32;
-
   document.documentElement.style.setProperty("--cell", `${cell}px`);
   boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${cell}px)`;
 }
 
-// ===== Camera: zoom/pan math =====
-function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
-function setZoom(newZoom, clientX, clientY){
-  newZoom = clamp(newZoom, ZOOM_MIN, ZOOM_MAX);
-
-  const rect = gameContainer.getBoundingClientRect();
-  const x = clientX - rect.left;
-  const y = clientY - rect.top;
-
-  // content coordinate under cursor BEFORE zoom
-  const contentX = (gameContainer.scrollLeft + x) / zoom;
-  const contentY = (gameContainer.scrollTop  + y) / zoom;
-
-  zoom = newZoom;
-  document.documentElement.style.setProperty("--zoom", zoom.toFixed(4));
-
-  // keep cursor pinned to same content point
-  gameContainer.scrollLeft = contentX * zoom - x;
-  gameContainer.scrollTop  = contentY * zoom - y;
-}
-
-function centerScroll(){
-  requestAnimationFrame(() => {
-    const maxX = Math.max(0, gameContainer.scrollWidth  - gameContainer.clientWidth);
-    const maxY = Math.max(0, gameContainer.scrollHeight - gameContainer.clientHeight);
-    gameContainer.scrollLeft = Math.floor(maxX / 2);
-    gameContainer.scrollTop  = Math.floor(maxY / 2);
-  });
-}
-
-// Intro: lock scroll, fit zoomOut, center
+// ===== Intro lock/unlock =====
 function lockIntro(){
   gameContainer.classList.add("intro-lock");
-  boardEl.classList.add("zoomed-out");
+  gameContainer.classList.remove("pan-ready");
+  gameContainer.classList.remove("grabbing");
+
+  boardEl.classList.add("intro-fit");
+  // in intro we use zoomOut via CSS (centered with translate)
+  document.documentElement.style.setProperty("--zoom", "1");
+  zoom = 1;
 }
 
-// After first click: unlock scroll
 function unlockIntro(){
   gameContainer.classList.remove("intro-lock");
-  boardEl.classList.remove("zoomed-out");
+  gameContainer.classList.add("pan-ready");
+
+  boardEl.classList.remove("intro-fit");
+  // after intro: pure scale, no translate
+  document.documentElement.style.setProperty("--zoom", zoom.toFixed(4));
 }
 
-// compute zoomOut to fit board in viewport, then apply extra zoom-out
 function fitIntro(){
   requestAnimationFrame(() => {
-    // temporarily measure board at zoom=1
-    const prevZoom = zoom;
-    zoom = 1;
-    document.documentElement.style.setProperty("--zoom", "1");
-
+    // measure unscaled board size
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
 
-    const viewW = gameContainer.clientWidth  - 20;
+    const viewW = gameContainer.clientWidth - 20;
     const viewH = gameContainer.clientHeight - 20;
 
     let z = Math.min(viewW / boardW, viewH / boardH);
 
-    // EXTRA zoom-out (smaller than perfect fit)
-    z *= 0.78; // lower => more zoom-out
-
+    // extra zoom-out
+    z *= 0.78;
     z = clamp(z, 0.06, 1);
 
     document.documentElement.style.setProperty("--zoomOut", z.toFixed(4));
 
-    // apply intro zoomOut
+    // keep scroll deterministic even if TG tries to start at 0,0
+    gameContainer.scrollLeft = 0;
+    gameContainer.scrollTop = 0;
+
     lockIntro();
-    zoom = z;
-    document.documentElement.style.setProperty("--zoom", z.toFixed(4));
-
-    // deterministic camera position
-    centerScroll();
-
-    // restore (we keep intro zoom anyway)
-    prevZoom; // no-op, kept to show intent
   });
 }
 
@@ -279,31 +243,21 @@ function buildFieldDOM(){
       el.className = "cell";
       el.dataset.r = String(r);
       el.dataset.c = String(c);
-
-      // gameplay tap (we decide tap vs drag in pointer handlers below)
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        if (gameOver) return;
-        toggleFlag(r,c);
-        renderAll();
-      });
-
       frag.appendChild(el);
     }
   }
   boardEl.appendChild(frag);
 
-  // reset camera hard
+  // reset zoom + scroll
   zoom = 1;
   document.documentElement.style.setProperty("--zoom", "1");
   gameContainer.scrollLeft = 0;
   gameContainer.scrollTop = 0;
 
-  // intro
   hasStarted = false;
   fitIntro();
 
-  // Telegram can lay out late; run again
+  // TG late layout
   setTimeout(() => { if (!hasStarted) fitIntro(); }, 140);
   setTimeout(() => { if (!hasStarted) fitIntro(); }, 360);
 }
@@ -335,11 +289,7 @@ function renderAll(){
 }
 
 function revealAllMines(){
-  for (let r=0;r<ROWS;r++){
-    for (let c=0;c<COLS;c++){
-      if (board[r][c].mine) board[r][c].revealed = true;
-    }
-  }
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) if (board[r][c].mine) board[r][c].revealed = true;
 }
 
 function lose(){
@@ -357,7 +307,7 @@ function winCheck(){
   }
 }
 
-// ===== Gameplay actions =====
+// ===== Actions =====
 function toggleFlag(r,c){
   const cell = board[r][c];
   if (cell.revealed) return;
@@ -410,7 +360,7 @@ function reveal(r,c){
 }
 
 function flaggedNeighbors(r,c){
-  let f = 0;
+  let f=0;
   forEachNeighbor(r,c,(nr,nc)=>{ if (board[nr][nc].flagged) f++; });
   return f;
 }
@@ -454,19 +404,17 @@ function smartQuickAction(r, c){
   if (cell.value > 0){
     const need = cell.value - flagged;
 
-    // forced bombs
     if (need > 0 && need === hiddenUnflagged.length){
       for (const [nr, nc] of hiddenUnflagged) board[nr][nc].flagged = true;
       return true;
     }
-    // forced safe reveals
+
     if (flagged === cell.value){
       chordReveal(r, c);
       return true;
     }
   }
 
-  // speed tap on 0
   if (cell.value === 0 && hiddenUnflagged.length > 0){
     for (const [nr, nc] of hiddenUnflagged){
       reveal(nr, nc);
@@ -478,70 +426,134 @@ function smartQuickAction(r, c){
   return false;
 }
 
-// ===== First-click zoom-in behavior =====
-function zoomInOnFirstClick(clientX, clientY){
-  // unlock scroll and set a slightly higher default zoom
-  unlockIntro();
-  const targetZoom = 1.12; // "a little bit higher"
-  setZoom(targetZoom, clientX, clientY);
+// ===== Zoom (pure scale after intro) =====
+function setZoom(newZoom, clientX, clientY){
+  newZoom = clamp(newZoom, ZOOM_MIN, ZOOM_MAX);
+
+  const rect = gameContainer.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+
+  // content point under cursor before zoom
+  const contentX = (gameContainer.scrollLeft + x) / zoom;
+  const contentY = (gameContainer.scrollTop  + y) / zoom;
+
+  zoom = newZoom;
+  document.documentElement.style.setProperty("--zoom", zoom.toFixed(4));
+
+  // keep that content point under cursor
+  gameContainer.scrollLeft = contentX * zoom - x;
+  gameContainer.scrollTop  = contentY * zoom - y;
 }
 
-// ===== Input: pan + pinch + wheel + tap =====
+// ===== Input rules you requested =====
+// - BEFORE first click: NO pan/zoom at all; only left click/tap opens.
+// - AFTER first click:
+//   - left click/tap opens cells
+//   - right click drag pans (PC)
+//   - hold+drag pans (mobile)
+//   - wheel zoom / pinch zoom smooth
 
-// disable browser context menu on camera (so RMB drag works)
-gameContainer.addEventListener("contextmenu", (e) => e.preventDefault());
+function isLeftMouseOpen(e){
+  return e.pointerType === "mouse" ? (e.button === 0) : true;
+}
+function isRightMousePan(e){
+  return e.pointerType === "mouse" && e.button === 2;
+}
 
-// PC wheel zoom
+function clearHoldTimer(){
+  if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+}
+
 gameContainer.addEventListener("wheel", (e) => {
+  // no zoom before first click
+  if (!hasStarted) return;
+
   e.preventDefault();
-  const factor = Math.exp(-e.deltaY * 0.0016);
-  setZoom(zoom * factor, e.clientX, e.clientY);
+
+  const factor = Math.exp(-e.deltaY * 0.0014);
+  wheelTargetZoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+
+  if (!wheelRAF){
+    wheelRAF = requestAnimationFrame(() => {
+      wheelRAF = 0;
+      setZoom(wheelTargetZoom, e.clientX, e.clientY);
+      suppressTapUntil = now() + 220;
+    });
+  }
 }, { passive: false });
 
-// pointer handlers on camera (capture) so it works even when touching cells
+// pointerdown on camera
 gameContainer.addEventListener("pointerdown", (e) => {
   if (gameOver) return;
 
-  // track pointers (for pinch)
+  // before first click: ignore all movement + zoom gestures
+  // but we still allow a left click/tap to open a cell
+  if (!hasStarted){
+    // store pointer just so pinch doesn’t start
+    pointers.clear();
+    pinch = null;
+    panState = null;
+    return;
+  }
+
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  // start pan:
-  // - touch: always allowed
-  // - mouse: only right button (button===2)
-  const allowPan =
-    (e.pointerType !== "mouse") ||
-    (e.pointerType === "mouse" && e.button === 2);
+  // pinch start (2 fingers)
+  if (pointers.size === 2){
+    const pts = [...pointers.values()];
+    const dx = pts[0].x - pts[1].x;
+    const dy = pts[0].y - pts[1].y;
+    pinch = { startDist: Math.hypot(dx, dy), startZoom: zoom };
+    suppressTapUntil = now() + 250;
+    clearHoldTimer();
+    return;
+  }
 
-  if (allowPan){
-    pan = {
+  // PC: RMB drag pan only
+  if (isRightMousePan(e)){
+    panState = {
       id: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
       startLeft: gameContainer.scrollLeft,
       startTop: gameContainer.scrollTop,
       moved: false,
-      isMouseRMB: (e.pointerType === "mouse" && e.button === 2)
+      panEnabled: true
     };
-    if (pan.isMouseRMB) gameContainer.classList.add("grabbing");
+    gameContainer.classList.add("grabbing");
+    suppressTapUntil = now() + 250;
+    return;
   }
 
-  // two pointers => pinch start
-  if (pointers.size === 2){
-    const pts = [...pointers.values()];
-    const dx = pts[0].x - pts[1].x;
-    const dy = pts[0].y - pts[1].y;
-    pinch = {
-      startDist: Math.hypot(dx, dy),
-      startZoom: zoom
+  // Mobile: hold-to-pan (one finger)
+  if (e.pointerType !== "mouse"){
+    panState = {
+      id: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: gameContainer.scrollLeft,
+      startTop: gameContainer.scrollTop,
+      moved: false,
+      panEnabled: false // becomes true after hold
     };
+
+    clearHoldTimer();
+    holdTimer = setTimeout(() => {
+      if (panState && panState.id === e.pointerId){
+        panState.panEnabled = true;
+        suppressTapUntil = now() + 300;
+      }
+    }, HOLD_TO_PAN_MS);
   }
 
-  // capture pointer so moves keep coming
-  try { gameContainer.setPointerCapture(e.pointerId); } catch(_){}
+  try { gameContainer.setPointerCapture(e.pointerId); } catch(_) {}
 }, true);
 
 gameContainer.addEventListener("pointermove", (e) => {
+  if (!hasStarted) return;
   if (!pointers.has(e.pointerId)) return;
+
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   // pinch zoom
@@ -557,55 +569,78 @@ gameContainer.addEventListener("pointermove", (e) => {
 
     const factor = dist / (pinch.startDist || dist);
     setZoom(pinch.startZoom * factor, cx, cy);
+
+    suppressTapUntil = now() + 250;
+    clearHoldTimer();
     return;
   }
 
-  // one-finger / RMB pan
-  if (pan && pan.id === e.pointerId){
-    const dx = e.clientX - pan.startX;
-    const dy = e.clientY - pan.startY;
+  // pan
+  if (panState && panState.id === e.pointerId){
+    const dx = e.clientX - panState.startX;
+    const dy = e.clientY - panState.startY;
 
-    if (!pan.moved && (dx*dx + dy*dy) > (8*8)) pan.moved = true;
+    if (!panState.moved && (dx*dx + dy*dy) > (MOVE_THRESH_PX*MOVE_THRESH_PX)){
+      panState.moved = true;
+    }
 
-    if (pan.moved){
+    if (panState.panEnabled){
       e.preventDefault();
-      gameContainer.scrollLeft = pan.startLeft - dx;
-      gameContainer.scrollTop  = pan.startTop  - dy;
+      gameContainer.scrollLeft = panState.startLeft - dx;
+      gameContainer.scrollTop  = panState.startTop  - dy;
+      suppressTapUntil = now() + 250;
     }
   }
 }, { passive: false, capture: true });
 
 gameContainer.addEventListener("pointerup", (e) => {
-  const wasPan = pan && pan.id === e.pointerId ? pan : null;
+  clearHoldTimer();
+
+  if (!hasStarted){
+    // intro: left click/tap opens cell, nothing else
+    if (isLeftMouseOpen(e)){
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const cellDiv = target?.closest?.(".cell");
+      if (cellDiv) handleCellOpen(cellDiv, e.clientX, e.clientY);
+    }
+    return;
+  }
 
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch = null;
 
   // end pan
-  if (pan && pan.id === e.pointerId){
-    if (pan.isMouseRMB) gameContainer.classList.remove("grabbing");
-    pan = null;
+  if (panState && panState.id === e.pointerId){
+    if (e.pointerType === "mouse") gameContainer.classList.remove("grabbing");
+    const moved = panState.moved;
+    const panEnabled = panState.panEnabled;
+    panState = null;
+
+    // if pan was enabled/moved -> no tap
+    if (panEnabled || moved) return;
   }
 
-  // If it was a tap (not moved) on a cell => gameplay click
-  if (wasPan && !wasPan.moved){
+  // suppress taps right after pinch/zoom/pan
+  if (now() < suppressTapUntil) return;
+
+  // open cell ONLY on left click / tap
+  if (isLeftMouseOpen(e)){
     const target = document.elementFromPoint(e.clientX, e.clientY);
     const cellDiv = target?.closest?.(".cell");
-    if (cellDiv) handleCellTap(cellDiv, e.clientX, e.clientY);
+    if (cellDiv) handleCellOpen(cellDiv, e.clientX, e.clientY);
   }
 }, true);
 
-gameContainer.addEventListener("pointercancel", (e) => {
-  pointers.delete(e.pointerId);
+gameContainer.addEventListener("pointercancel", () => {
+  clearHoldTimer();
+  pointers.clear();
   pinch = null;
-  if (pan && pan.id === e.pointerId){
-    if (pan.isMouseRMB) gameContainer.classList.remove("grabbing");
-    pan = null;
-  }
+  panState = null;
+  gameContainer.classList.remove("grabbing");
 }, true);
 
-// ===== Gameplay tap handler (called after camera decides it's a tap) =====
-function handleCellTap(cellDiv, clientX, clientY){
+// ===== Only this function opens cells =====
+function handleCellOpen(cellDiv, clientX, clientY){
   if (gameOver) return;
 
   const r = parseInt(cellDiv.dataset.r, 10);
@@ -614,23 +649,35 @@ function handleCellTap(cellDiv, clientX, clientY){
 
   ensureMinefieldExists();
 
-  // revealed => quick action
+  // revealed -> quick action
   if (cell.revealed){
     if (smartQuickAction(r, c)) renderAll();
     return;
   }
 
-  // flag mode
+  // flag mode (still left click/tap)
   if (mode === "flag"){
     toggleFlag(r, c);
     renderAll();
     return;
   }
 
-  // FIRST reveal => zoom in a bit and unlock intro
+  // first click: unlock movement + switch from intro-fit to real zoom
   if (!hasStarted){
     hasStarted = true;
-    zoomInOnFirstClick(clientX, clientY);
+
+    // set a slightly higher initial zoom than 1
+    zoom = 1.12;
+    unlockIntro();
+    document.documentElement.style.setProperty("--zoom", zoom.toFixed(4));
+
+    // center where user clicked (no smooth scroll; stable)
+    setZoom(zoom, clientX, clientY);
+
+    // block accidental immediate gestures
+    suppressTapUntil = now() + 200;
+
+    // now panning is allowed
   }
 
   reveal(r, c);
@@ -641,13 +688,19 @@ function handleCellTap(cellDiv, clientX, clientY){
 function updateModeText(){
   toggleBtn.textContent = (mode === "reveal") ? "Switch to Flag Mode" : "Switch to Reveal Mode";
 }
-
 toggleBtn.addEventListener("click", ()=>{
   mode = (mode === "reveal") ? "flag" : "reveal";
   updateModeText();
 });
 
 restartBtn.addEventListener("click", ()=>{
+  // hard reset everything
+  pointers.clear();
+  pinch = null;
+  panState = null;
+  suppressTapUntil = 0;
+  clearHoldTimer();
+
   createEmptyBoard();
   buildFieldDOM();
   renderAll();

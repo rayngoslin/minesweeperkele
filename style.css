@@ -1,17 +1,17 @@
 * { box-sizing: border-box; }
 
 :root{
-  --cell: 18px;       /* set by JS */
-  --zoomOut: 0.6;     /* set by JS */
-  --zoom: 1;          /* live zoom set by JS */
-  --hudSpace: 0px;    /* set by JS */
+  --cell: 18px;
+  --zoomOut: 0.6;
+  --zoom: 1;
+  --hudSpace: 0px;
 }
 
 html, body{
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;              /* page never scrolls */
+  overflow: hidden;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -25,10 +25,8 @@ body{
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 99999;
-
   transform: translateZ(0);
   will-change: transform;
-
   background: #333;
   color: #fff;
 
@@ -60,15 +58,12 @@ body{
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-
   font-size: clamp(12px, 3.3vw, 16px);
   padding: clamp(7px, 2.2vw, 10px) clamp(10px, 3vw, 14px);
-
   border: none;
   border-radius: 10px;
   background: #555;
   color: #fff;
-
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -89,41 +84,46 @@ body{
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 
-  /* IMPORTANT: we handle pan/pinch ourselves */
+  /* we handle gestures ourselves */
   touch-action: none;
 
-  cursor: grab;
+  cursor: default;
 }
-#game-container.grabbing { cursor: grabbing; }
 
-/* Intro: lock camera scroll (still centered visually) */
+#game-container.pan-ready{ cursor: grab; }
+#game-container.pan-ready.grabbing{ cursor: grabbing; }
+
+/* Intro: lock all movement */
 #game-container.intro-lock{
   overflow: hidden !important;
 }
 
-/* Centers board when zoomed out (intro) */
+/* Wrapper used for centering */
 #board-wrap{
+  position: relative;
   min-width: 100%;
   min-height: 100%;
-  display: grid;
-  place-items: center;
 }
 
-/* Board */
+/* Board (normal mode: pure scale, no translate) */
 #board{
   display: grid;
   gap: 2px;
   width: max-content;
 
-  transform-origin: 0 0; /* required for correct zoom math */
+  transform-origin: 0 0;
   transform: scale(var(--zoom));
-
-  transition: transform 140ms linear; /* faster feel for zoom */
+  transition: transform 90ms linear;
 }
 
-/* Intro zoomed-out state uses zoomOut */
-#board.zoomed-out{
-  --zoom: var(--zoomOut);
+/* Intro mode: true visual centering */
+#board.intro-fit{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center center;
+  transform: translate(-50%, -50%) scale(var(--zoomOut));
+  transition: transform 160ms ease;
 }
 
 .cell{
