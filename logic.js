@@ -40,7 +40,7 @@
   let zoom = 1;
   let zoomTarget = 1;
   let zoomAnimRAF = 0;
-  const ZOOM_MIN = 0.35;
+  const ZOOM_MIN = 0.6;
   const ZOOM_MAX = 3.00;
 
   // gesture state
