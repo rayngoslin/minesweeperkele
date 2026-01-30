@@ -313,18 +313,7 @@ function syncZoomInScale(bounds){
   const viewH = gameContainer.clientHeight - 20;
 
   const fit = Math.min(viewW / patchW, viewH / patchH);
-  const patchArea = patchW * patchH;
-  const viewArea = viewW * viewH;
-  const areaRatio = viewArea > 0 ? (patchArea / viewArea) : 1;
-
-  // Adaptive zoom: smaller patches get extra zoom, larger patches get a bit less
-  let boost = 1.0;
-  if (areaRatio < 0.06) boost = 1.25;
-  else if (areaRatio < 0.12) boost = 1.15;
-  else if (areaRatio < 0.2) boost = 1.08;
-  else if (areaRatio > 0.6) boost = 0.95;
-
-  let scale = Math.max(1.6, Math.min(6.0, fit * boost));
+  let scale = Math.max(1.4, Math.min(4.0, fit * 1.05));
   if (!Number.isFinite(scale)) scale = 1.2;
 
   document.documentElement.style.setProperty("--zoomIn", scale.toFixed(3));
