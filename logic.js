@@ -35,6 +35,8 @@ let manualZoomActive = false;
 let panState = null;
 const touchPointers = new Map();
 let pinchState = null;
+let baseBoardW = 0;
+let baseBoardH = 0;
 
 const boardEl = document.getElementById("board");
 const bombEl = document.getElementById("bomb-count");
@@ -42,6 +44,7 @@ const toggleBtn = document.getElementById("toggle-mode");
 const restartBtn = document.getElementById("restart-btn");
 const gameContainer = document.getElementById("game-container");
 const hudEl = document.getElementById("hud");
+const boardWrap = document.getElementById("board-wrap");
 
 // ===== optional banner =====
 (() => {
@@ -233,6 +236,8 @@ function fitBoardToViewport(){
 
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
+    baseBoardW = boardW;
+    baseBoardH = boardH;
 
     if (wasZoomed) boardEl.classList.add("zoomed-out");
     if (wasZoomedIn) boardEl.classList.add("zoomed-in");
@@ -251,10 +256,38 @@ function fitBoardToViewport(){
     if (scale < 0.06) scale = 0.06;
 
     document.documentElement.style.setProperty("--zoomOut", scale.toFixed(3));
+    updateBoardWrapSize(scale);
 
     // after zoomOut applied, center scroll so board isn't stuck top-left
     centerCamera();
   });
+}
+
+function measureBoardBaseSize(){
+  const wasZoomed = boardEl.classList.contains("zoomed-out");
+  const wasZoomedIn = boardEl.classList.contains("zoomed-in");
+  const wasManual = boardEl.classList.contains("zoom-manual");
+
+  boardEl.classList.remove("zoomed-out");
+  boardEl.classList.remove("zoomed-in");
+  boardEl.classList.remove("zoom-manual");
+  boardEl.style.transform = "";
+
+  baseBoardW = boardEl.scrollWidth;
+  baseBoardH = boardEl.scrollHeight;
+
+  if (wasZoomed) boardEl.classList.add("zoomed-out");
+  if (wasZoomedIn) boardEl.classList.add("zoomed-in");
+  if (wasManual) boardEl.classList.add("zoom-manual");
+}
+
+function updateBoardWrapSize(scale){
+  if (!boardWrap) return;
+  if (!baseBoardW || !baseBoardH) measureBoardBaseSize();
+  const w = Math.max(baseBoardW * scale, gameContainer.clientWidth);
+  const h = Math.max(baseBoardH * scale, gameContainer.clientHeight);
+  boardWrap.style.width = `${Math.ceil(w)}px`;
+  boardWrap.style.height = `${Math.ceil(h)}px`;
 }
 
 function syncZoomInScale(bounds){
@@ -280,10 +313,22 @@ function syncZoomInScale(bounds){
   const viewH = gameContainer.clientHeight - 20;
 
   const fit = Math.min(viewW / patchW, viewH / patchH);
-  let scale = Math.max(1.4, Math.min(4.0, fit * 1.05));
+  const patchArea = patchW * patchH;
+  const viewArea = viewW * viewH;
+  const areaRatio = viewArea > 0 ? (patchArea / viewArea) : 1;
+
+  // Adaptive zoom: smaller patches get extra zoom, larger patches get a bit less
+  let boost = 1.0;
+  if (areaRatio < 0.06) boost = 1.25;
+  else if (areaRatio < 0.12) boost = 1.15;
+  else if (areaRatio < 0.2) boost = 1.08;
+  else if (areaRatio > 0.6) boost = 0.95;
+
+  let scale = Math.max(1.6, Math.min(6.0, fit * boost));
   if (!Number.isFinite(scale)) scale = 1.2;
 
   document.documentElement.style.setProperty("--zoomIn", scale.toFixed(3));
+  updateBoardWrapSize(scale);
 
   if (wasZoomedOut) boardEl.classList.add("zoomed-out");
   if (wasZoomedIn) boardEl.classList.add("zoomed-in");
@@ -321,9 +366,6 @@ function buildFieldDOM(){
 
       el.addEventListener("contextmenu",(e)=>{
         e.preventDefault();
-        if (gameOver) return;
-        toggleFlag(r,c);
-        renderAll();
       });
 
       frag.appendChild(el);
@@ -335,6 +377,8 @@ function buildFieldDOM(){
   hasStarted = false;
   isZoomAnimating = false;
   lockIntroCamera();
+
+  measureBoardBaseSize();
 
   // reset scroll to deterministic position, then fit+center
   gameContainer.scrollLeft = 0;
@@ -645,6 +689,7 @@ function applyManualZoom(scale){
   boardEl.classList.remove("zoomed-out");
   boardEl.classList.remove("zoomed-in");
   manualZoomActive = true;
+  updateBoardWrapSize(next);
 }
 
 function onWheelZoom(e){

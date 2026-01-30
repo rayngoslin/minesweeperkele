@@ -124,11 +124,13 @@ body{
 /* Zoomed-in gameplay */
 #board.zoomed-in{
   transform: scale(var(--zoomIn));
+  transform-origin: top left;
 }
 
 /* Manual zoom */
 #board.zoom-manual{
   transform: scale(var(--zoomManual));
+  transform-origin: top left;
 }
 
 .cell{
