@@ -1,4 +1,4 @@
-// logic.js (v=20260125_150HARD_CENTERFIX)
+// logic.js (v=20260130_NO_RCLICK_PRECLICK_BLOCK)
 // - Intro: fit whole board visible + centered, scrolling locked
 // - First click: unlock scroll (X+Y), zoom in, center clicked cell
 // - After: pan freely; tap vs drag detection so panning doesn't trigger clicks
@@ -313,7 +313,18 @@ function syncZoomInScale(bounds){
   const viewH = gameContainer.clientHeight - 20;
 
   const fit = Math.min(viewW / patchW, viewH / patchH);
-  let scale = Math.max(1.4, Math.min(4.0, fit * 1.05));
+  const patchArea = patchW * patchH;
+  const viewArea = viewW * viewH;
+  const areaRatio = viewArea > 0 ? (patchArea / viewArea) : 1;
+
+  // Adaptive zoom: smaller patches get extra zoom, larger patches get a bit less
+  let boost = 1.0;
+  if (areaRatio < 0.06) boost = 1.25;
+  else if (areaRatio < 0.12) boost = 1.15;
+  else if (areaRatio < 0.2) boost = 1.08;
+  else if (areaRatio > 0.6) boost = 0.95;
+
+  let scale = Math.max(1.6, Math.min(6.0, fit * boost));
   if (!Number.isFinite(scale)) scale = 1.2;
 
   document.documentElement.style.setProperty("--zoomIn", scale.toFixed(3));
@@ -353,10 +364,6 @@ function buildFieldDOM(){
       el.addEventListener("pointerup", onPointerUp, { passive: true });
       el.addEventListener("pointercancel", () => { dragState = null; }, { passive: true });
 
-      el.addEventListener("contextmenu",(e)=>{
-        e.preventDefault();
-      });
-
       frag.appendChild(el);
     }
   }
@@ -380,7 +387,6 @@ function buildFieldDOM(){
 // ===== pointer tap vs drag =====
 function onPointerDown(e){
   if (gameOver || isZoomAnimating) return;
-  if (e.button !== 0) return;
 
   dragState = {
     el: e.currentTarget,
@@ -694,7 +700,6 @@ function onWheelZoom(e){
 }
 
 function onMousePanStart(e){
-  if (!hasStarted) return;
   if (e.button !== 2) return;
   panState = {
     startX: e.clientX,
@@ -719,7 +724,6 @@ function onMousePanEnd(){
 
 function onTouchPointerDown(e){
   if (e.pointerType !== "touch") return;
-  if (!hasStarted) return;
   touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (touchPointers.size === 2){
@@ -732,7 +736,6 @@ function onTouchPointerDown(e){
 function onTouchPointerMove(e){
   if (e.pointerType !== "touch") return;
   if (!touchPointers.has(e.pointerId)) return;
-  if (!hasStarted) return;
 
   const prev = touchPointers.get(e.pointerId);
   touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -795,6 +798,9 @@ window.addEventListener("mousemove", onMousePanMove, { passive: true });
 window.addEventListener("mouseup", onMousePanEnd, { passive: true });
 gameContainer.addEventListener("contextmenu", (e) => {
   if (panState) e.preventDefault();
+});
+boardEl.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
 });
 
 gameContainer.addEventListener("pointerdown", onTouchPointerDown, { passive: true });
