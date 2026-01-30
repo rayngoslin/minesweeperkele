@@ -3,6 +3,7 @@
 :root{
   --cell: 18px;       /* set by JS */
   --zoomOut: 0.6;     /* set by JS */
+  --zoomIn: 1.2;      /* set by JS */
 }
 
 html, body{
@@ -117,6 +118,11 @@ body{
 /* Zoomed-out preview */
 #board.zoomed-out{
   transform: scale(var(--zoomOut));
+}
+
+/* Zoomed-in gameplay */
+#board.zoomed-in{
+  transform: scale(var(--zoomIn));
 }
 
 .cell{

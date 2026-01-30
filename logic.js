@@ -187,6 +187,7 @@ function syncCellSizeToScreen(){
 function lockIntroCamera(){
   gameContainer.classList.add("intro-lock");
   boardEl.classList.add("zoomed-out");
+  boardEl.classList.remove("zoomed-in");
 }
 
 function unlockCamera(){
@@ -204,19 +205,29 @@ function centerCamera(){
   });
 }
 
+function centerCameraBurst(){
+  centerCamera();
+  requestAnimationFrame(centerCamera);
+  setTimeout(centerCamera, 60);
+  setTimeout(centerCamera, 250);
+}
+
 // ===== fit whole board in intro =====
 function fitBoardToViewport(){
   requestAnimationFrame(() => {
     const wasZoomed = boardEl.classList.contains("zoomed-out");
+    const wasZoomedIn = boardEl.classList.contains("zoomed-in");
 
     // measure unscaled board size
     boardEl.classList.remove("zoomed-out");
+    boardEl.classList.remove("zoomed-in");
     boardEl.style.transform = "";
 
     const boardW = boardEl.scrollWidth;
     const boardH = boardEl.scrollHeight;
 
     if (wasZoomed) boardEl.classList.add("zoomed-out");
+    if (wasZoomedIn) boardEl.classList.add("zoomed-in");
 
     // IMPORTANT: gameContainer is already "below HUD" via top: --hudSpace
     const viewW = gameContainer.clientWidth  - 20;
@@ -235,6 +246,29 @@ function fitBoardToViewport(){
     // after zoomOut applied, center scroll so board isn't stuck top-left
     centerCamera();
   });
+}
+
+function syncZoomInScale(){
+  const wasZoomedOut = boardEl.classList.contains("zoomed-out");
+  const wasZoomedIn = boardEl.classList.contains("zoomed-in");
+
+  boardEl.classList.remove("zoomed-out");
+  boardEl.classList.remove("zoomed-in");
+  boardEl.style.transform = "";
+
+  const boardW = boardEl.scrollWidth;
+  const boardH = boardEl.scrollHeight;
+  const viewW = gameContainer.clientWidth  - 20;
+  const viewH = gameContainer.clientHeight - 20;
+
+  const fit = Math.min(viewW / boardW, viewH / boardH);
+  let scale = Math.max(1.2, Math.min(2.2, fit * 1.35));
+  if (!Number.isFinite(scale)) scale = 1.2;
+
+  document.documentElement.style.setProperty("--zoomIn", scale.toFixed(3));
+
+  if (wasZoomedOut) boardEl.classList.add("zoomed-out");
+  if (wasZoomedIn) boardEl.classList.add("zoomed-in");
 }
 
 // If we’re still in intro (hasStarted=false), keep it fit+center on resizes
@@ -497,10 +531,21 @@ function zoomIntoCell(r, c){
   const cellEl = boardEl.querySelectorAll(".cell")[idx];
 
   requestAnimationFrame(() => {
+    syncZoomInScale();
+    boardEl.classList.add("zoomed-in");
+    boardEl.classList.remove("zoomed-out");
+
     if (cellEl?.scrollIntoView){
-      cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      requestAnimationFrame(() => {
+        cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        setTimeout(() => {
+          if (cellEl?.scrollIntoView){
+            cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+          }
+        }, 160);
+      });
     }
-    setTimeout(() => { isZoomAnimating = false; }, 450);
+    setTimeout(() => { isZoomAnimating = false; }, 520);
   });
 }
 
