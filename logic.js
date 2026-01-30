@@ -1,4 +1,4 @@
-// logic.js (v=20260130_NO_RCLICK_PRECLICK_BLOCK)
+// logic.js (v=20260125_150HARD_CENTERFIX)
 // - Intro: fit whole board visible + centered, scrolling locked
 // - First click: unlock scroll (X+Y), zoom in, center clicked cell
 // - After: pan freely; tap vs drag detection so panning doesn't trigger clicks
@@ -363,6 +363,10 @@ function buildFieldDOM(){
       el.addEventListener("pointermove", onPointerMove, { passive: true });
       el.addEventListener("pointerup", onPointerUp, { passive: true });
       el.addEventListener("pointercancel", () => { dragState = null; }, { passive: true });
+
+      el.addEventListener("contextmenu",(e)=>{
+        e.preventDefault();
+      });
 
       frag.appendChild(el);
     }
@@ -798,9 +802,6 @@ window.addEventListener("mousemove", onMousePanMove, { passive: true });
 window.addEventListener("mouseup", onMousePanEnd, { passive: true });
 gameContainer.addEventListener("contextmenu", (e) => {
   if (panState) e.preventDefault();
-});
-boardEl.addEventListener("contextmenu", (e) => {
-  e.preventDefault();
 });
 
 gameContainer.addEventListener("pointerdown", onTouchPointerDown, { passive: true });
