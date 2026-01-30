@@ -480,17 +480,22 @@
     const rect = gameContainer.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
+    const boardRect = boardEl.getBoundingClientRect();
+    const offsetX = boardRect.left - rect.left + gameContainer.scrollLeft;
+    const offsetY = boardRect.top - rect.top + gameContainer.scrollTop;
 
     // content point under cursor BEFORE changing zoom
-    const contentX = (gameContainer.scrollLeft + x) / zoom;
-    const contentY = (gameContainer.scrollTop  + y) / zoom;
+    const contentX = (gameContainer.scrollLeft + x - offsetX) / zoom;
+    const contentY = (gameContainer.scrollTop + y - offsetY) / zoom;
+
 
     zoomTarget = newZoom;
     startZoomAnimator();
 
     // move scroll based on target (feels anchored)
-    gameContainer.scrollLeft = contentX * zoomTarget - x;
-    gameContainer.scrollTop  = contentY * zoomTarget - y;
+    gameContainer.scrollLeft = contentX * zoomTarget + offsetX - x;
+    gameContainer.scrollTop  = contentY * zoomTarget + offsetY - y;
+
   }
 
   function clearHoldTimer(){
