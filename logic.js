@@ -31,6 +31,10 @@ let gameOver = false;
 let hasStarted = false;
 let isZoomAnimating = false;
 let dragState = null;
+let manualZoomActive = false;
+let panState = null;
+const touchPointers = new Map();
+let pinchState = null;
 
 const boardEl = document.getElementById("board");
 const bombEl = document.getElementById("bomb-count");
@@ -188,6 +192,8 @@ function lockIntroCamera(){
   gameContainer.classList.add("intro-lock");
   boardEl.classList.add("zoomed-out");
   boardEl.classList.remove("zoomed-in");
+  boardEl.classList.remove("zoom-manual");
+  manualZoomActive = false;
 }
 
 function unlockCamera(){
@@ -217,10 +223,12 @@ function fitBoardToViewport(){
   requestAnimationFrame(() => {
     const wasZoomed = boardEl.classList.contains("zoomed-out");
     const wasZoomedIn = boardEl.classList.contains("zoomed-in");
+    const wasManual = boardEl.classList.contains("zoom-manual");
 
     // measure unscaled board size
     boardEl.classList.remove("zoomed-out");
     boardEl.classList.remove("zoomed-in");
+    boardEl.classList.remove("zoom-manual");
     boardEl.style.transform = "";
 
     const boardW = boardEl.scrollWidth;
@@ -228,6 +236,7 @@ function fitBoardToViewport(){
 
     if (wasZoomed) boardEl.classList.add("zoomed-out");
     if (wasZoomedIn) boardEl.classList.add("zoomed-in");
+    if (wasManual) boardEl.classList.add("zoom-manual");
 
     // IMPORTANT: gameContainer is already "below HUD" via top: --hudSpace
     const viewW = gameContainer.clientWidth  - 20;
@@ -248,27 +257,37 @@ function fitBoardToViewport(){
   });
 }
 
-function syncZoomInScale(){
+function syncZoomInScale(bounds){
   const wasZoomedOut = boardEl.classList.contains("zoomed-out");
   const wasZoomedIn = boardEl.classList.contains("zoomed-in");
+  const wasManual = boardEl.classList.contains("zoom-manual");
 
   boardEl.classList.remove("zoomed-out");
   boardEl.classList.remove("zoomed-in");
+  boardEl.classList.remove("zoom-manual");
   boardEl.style.transform = "";
 
-  const boardW = boardEl.scrollWidth;
-  const boardH = boardEl.scrollHeight;
+  const rootStyles = getComputedStyle(document.documentElement);
+  const cellSize = parseFloat(rootStyles.getPropertyValue("--cell")) || 18;
+  const boardStyles = getComputedStyle(boardEl);
+  const gap = parseFloat(boardStyles.gap) || 0;
+
+  const cellsWide = Math.max(1, (bounds.maxC - bounds.minC + 1));
+  const cellsHigh = Math.max(1, (bounds.maxR - bounds.minR + 1));
+  const patchW = cellsWide * cellSize + (cellsWide - 1) * gap;
+  const patchH = cellsHigh * cellSize + (cellsHigh - 1) * gap;
   const viewW = gameContainer.clientWidth  - 20;
   const viewH = gameContainer.clientHeight - 20;
 
-  const fit = Math.min(viewW / boardW, viewH / boardH);
-  let scale = Math.max(1.2, Math.min(2.2, fit * 1.35));
+  const fit = Math.min(viewW / patchW, viewH / patchH);
+  let scale = Math.max(1.4, Math.min(4.0, fit * 1.05));
   if (!Number.isFinite(scale)) scale = 1.2;
 
   document.documentElement.style.setProperty("--zoomIn", scale.toFixed(3));
 
   if (wasZoomedOut) boardEl.classList.add("zoomed-out");
   if (wasZoomedIn) boardEl.classList.add("zoomed-in");
+  if (wasManual) boardEl.classList.add("zoom-manual");
 }
 
 // If we’re still in intro (hasStarted=false), keep it fit+center on resizes
@@ -523,7 +542,7 @@ function smartQuickAction(r, c){
 }
 
 // ===== intro zoom-in =====
-function zoomIntoCell(r, c){
+function zoomIntoCell(r, c, bounds){
   if (isZoomAnimating) return;
   isZoomAnimating = true;
 
@@ -531,9 +550,11 @@ function zoomIntoCell(r, c){
   const cellEl = boardEl.querySelectorAll(".cell")[idx];
 
   requestAnimationFrame(() => {
-    syncZoomInScale();
+    syncZoomInScale(bounds);
     boardEl.classList.add("zoomed-in");
     boardEl.classList.remove("zoomed-out");
+    boardEl.classList.remove("zoom-manual");
+    manualZoomActive = false;
 
     if (cellEl?.scrollIntoView){
       requestAnimationFrame(() => {
@@ -547,6 +568,26 @@ function zoomIntoCell(r, c){
     }
     setTimeout(() => { isZoomAnimating = false; }, 520);
   });
+}
+
+function getRevealedBounds(fallbackR, fallbackC){
+  let minR = ROWS, minC = COLS, maxR = -1, maxC = -1;
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
+      if (!board[r][c].revealed) continue;
+      if (r < minR) minR = r;
+      if (c < minC) minC = c;
+      if (r > maxR) maxR = r;
+      if (c > maxC) maxC = c;
+    }
+  }
+
+  if (maxR < 0){
+    minR = maxR = fallbackR;
+    minC = maxC = fallbackC;
+  }
+
+  return { minR, minC, maxR, maxC };
 }
 
 // ===== tap activation =====
@@ -574,11 +615,113 @@ function onCellActivate(cellDiv){
     hasStarted = true;
     unlockCamera();
     boardEl.classList.remove("zoomed-out");
-    zoomIntoCell(r, c);
   }
 
   reveal(r, c);
   renderAll();
+
+  if (hasStarted && !isZoomAnimating && !boardEl.classList.contains("zoomed-in")){
+    const bounds = getRevealedBounds(r, c);
+    zoomIntoCell(r, c, bounds);
+  }
+}
+
+function getCurrentZoom(){
+  const rootStyles = getComputedStyle(document.documentElement);
+  if (boardEl.classList.contains("zoom-manual")){
+    return parseFloat(rootStyles.getPropertyValue("--zoomManual")) || 1;
+  }
+  if (boardEl.classList.contains("zoomed-in")){
+    return parseFloat(rootStyles.getPropertyValue("--zoomIn")) || 1;
+  }
+  return parseFloat(rootStyles.getPropertyValue("--zoomOut")) || 1;
+}
+
+function applyManualZoom(scale){
+  if (!Number.isFinite(scale)) return;
+  const next = Math.max(0.5, Math.min(6.0, scale));
+  document.documentElement.style.setProperty("--zoomManual", next.toFixed(3));
+  boardEl.classList.add("zoom-manual");
+  boardEl.classList.remove("zoomed-out");
+  boardEl.classList.remove("zoomed-in");
+  manualZoomActive = true;
+}
+
+function onWheelZoom(e){
+  if (!hasStarted) return;
+  if (isZoomAnimating) return;
+  if (e.ctrlKey) return;
+  e.preventDefault();
+
+  const current = getCurrentZoom();
+  const factor = Math.pow(1.0015, -e.deltaY);
+  applyManualZoom(current * factor);
+}
+
+function onMousePanStart(e){
+  if (e.button !== 2) return;
+  panState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    scrollLeft: gameContainer.scrollLeft,
+    scrollTop: gameContainer.scrollTop
+  };
+  e.preventDefault();
+}
+
+function onMousePanMove(e){
+  if (!panState) return;
+  const dx = e.clientX - panState.startX;
+  const dy = e.clientY - panState.startY;
+  gameContainer.scrollLeft = panState.scrollLeft - dx;
+  gameContainer.scrollTop = panState.scrollTop - dy;
+}
+
+function onMousePanEnd(){
+  panState = null;
+}
+
+function onTouchPointerDown(e){
+  if (e.pointerType !== "touch") return;
+  touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (touchPointers.size === 2){
+    const pts = Array.from(touchPointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    pinchState = { startDist: dist, startZoom: getCurrentZoom() };
+  }
+}
+
+function onTouchPointerMove(e){
+  if (e.pointerType !== "touch") return;
+  if (!touchPointers.has(e.pointerId)) return;
+
+  const prev = touchPointers.get(e.pointerId);
+  touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (touchPointers.size === 2 && pinchState){
+    e.preventDefault();
+    const pts = Array.from(touchPointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    const scale = pinchState.startZoom * (dist / Math.max(1, pinchState.startDist));
+    applyManualZoom(scale);
+    return;
+  }
+
+  if (touchPointers.size === 1){
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    if ((dx*dx + dy*dy) > 4){
+      gameContainer.scrollLeft -= dx;
+      gameContainer.scrollTop -= dy;
+    }
+  }
+}
+
+function onTouchPointerUp(e){
+  if (e.pointerType !== "touch") return;
+  touchPointers.delete(e.pointerId);
+  if (touchPointers.size < 2) pinchState = null;
 }
 
 // ===== UI =====
@@ -607,3 +750,16 @@ createEmptyBoard();
 buildFieldDOM();
 renderAll();
 updateModeText();
+
+gameContainer.addEventListener("wheel", onWheelZoom, { passive: false });
+gameContainer.addEventListener("mousedown", onMousePanStart, { passive: false });
+window.addEventListener("mousemove", onMousePanMove, { passive: true });
+window.addEventListener("mouseup", onMousePanEnd, { passive: true });
+gameContainer.addEventListener("contextmenu", (e) => {
+  if (panState) e.preventDefault();
+});
+
+gameContainer.addEventListener("pointerdown", onTouchPointerDown, { passive: true });
+gameContainer.addEventListener("pointermove", onTouchPointerMove, { passive: false });
+gameContainer.addEventListener("pointerup", onTouchPointerUp, { passive: true });
+gameContainer.addEventListener("pointercancel", onTouchPointerUp, { passive: true });

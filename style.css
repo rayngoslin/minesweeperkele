@@ -4,6 +4,7 @@
   --cell: 18px;       /* set by JS */
   --zoomOut: 0.6;     /* set by JS */
   --zoomIn: 1.2;      /* set by JS */
+  --zoomManual: 1.0;  /* set by JS */
 }
 
 html, body{
@@ -87,7 +88,7 @@ body{
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  touch-action: pan-x pan-y;
+  touch-action: none;
 }
 
 
@@ -123,6 +124,11 @@ body{
 /* Zoomed-in gameplay */
 #board.zoomed-in{
   transform: scale(var(--zoomIn));
+}
+
+/* Manual zoom */
+#board.zoom-manual{
+  transform: scale(var(--zoomManual));
 }
 
 .cell{
