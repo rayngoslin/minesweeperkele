@@ -380,6 +380,7 @@ function buildFieldDOM(){
 // ===== pointer tap vs drag =====
 function onPointerDown(e){
   if (gameOver || isZoomAnimating) return;
+  if (e.button !== 0) return;
 
   dragState = {
     el: e.currentTarget,
@@ -682,7 +683,7 @@ function applyManualZoom(scale){
 }
 
 function onWheelZoom(e){
-  if (!hasStarted) return;
+  if (hasStarted) return;
   if (isZoomAnimating) return;
   if (e.ctrlKey) return;
   e.preventDefault();
@@ -693,6 +694,7 @@ function onWheelZoom(e){
 }
 
 function onMousePanStart(e){
+  if (hasStarted) return;
   if (e.button !== 2) return;
   panState = {
     startX: e.clientX,
@@ -717,6 +719,7 @@ function onMousePanEnd(){
 
 function onTouchPointerDown(e){
   if (e.pointerType !== "touch") return;
+  if (hasStarted) return;
   touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (touchPointers.size === 2){
@@ -729,6 +732,7 @@ function onTouchPointerDown(e){
 function onTouchPointerMove(e){
   if (e.pointerType !== "touch") return;
   if (!touchPointers.has(e.pointerId)) return;
+  if (hasStarted) return;
 
   const prev = touchPointers.get(e.pointerId);
   touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
