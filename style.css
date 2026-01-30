@@ -1,17 +1,15 @@
 * { box-sizing: border-box; }
 
 :root{
-  --cell: 18px;
-  --zoomOut: 0.6;
-  --zoom: 1;
-  --hudSpace: 0px;
+  --cell: 18px;       /* set by JS */
+  --zoomOut: 0.6;     /* set by JS */
 }
 
 html, body{
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: hidden;              /* IMPORTANT: page never scrolls */
   -webkit-text-size-adjust: 100%;
 }
 
@@ -25,8 +23,10 @@ body{
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 99999;
+
   transform: translateZ(0);
   will-change: transform;
+
   background: #333;
   color: #fff;
 
@@ -58,12 +58,15 @@ body{
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
+
   font-size: clamp(12px, 3.3vw, 16px);
   padding: clamp(7px, 2.2vw, 10px) clamp(10px, 3vw, 14px);
+
   border: none;
   border-radius: 10px;
   background: #555;
   color: #fff;
+
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -73,62 +76,47 @@ body{
   #hud button{ flex: 1 1 45%; }
 }
 
-/* ===== Camera viewport ===== */
+/* ===== Scroll / Pan viewport ===== */
 #game-container{
   position: fixed;
   left: 0; right: 0; bottom: 0;
-  top: var(--hudSpace, 0px);
-
-  /* symmetric padding only */
+  top: var(--hudSpace, 0px);      /* <-- this is the spacer */
   padding: 10px;
-
+  padding-left: 6px;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-
-  /* we handle gestures */
-  touch-action: none;
-
-  /* IMPORTANT: remove any weird TG left inset influence */
-  padding-left: max(10px, env(safe-area-inset-left));
-  padding-right: max(10px, env(safe-area-inset-right));
+  touch-action: pan-x pan-y;
 }
 
 
-#game-container.pan-ready{ cursor: grab; }
-#game-container.pan-ready.grabbing{ cursor: grabbing; }
-
-/* Intro: lock all movement */
+/* Intro: lock camera */
 #game-container.intro-lock{
   overflow: hidden !important;
+  touch-action: none !important;
 }
 
-/* Wrapper used for centering */
+/* Centers board when zoomed out */
 #board-wrap{
-  position: relative;
   min-width: 100%;
   min-height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
+  display: grid;
+  place-items: center;
 }
 
-/* Board (normal mode: pure scale, no translate) */
+/* Board */
 #board{
   display: grid;
   gap: 2px;
   width: max-content;
-  will-change: transform;
-  transform-origin: 0 0;
-  transform: scale(var(--zoom));
-  transition: transform 120ms linear;
+
+  transform-origin: center center;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Intro mode: true visual centering */
-#board.intro-fit{
-  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
+/* Zoomed-out preview */
+#board.zoomed-out{
+  transform: scale(var(--zoomOut));
 }
 
 .cell{
