@@ -131,9 +131,9 @@ body{
   background: var(--dark-gray);
   color: var(--light-gray);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
-  border-radius: 6px;
+  border-radius: 12px;
   margin: -1px;
-  z-index: 1;
+  z-index: 2;
 }
 .cell.flagged{
   background: var(--dark-red);
@@ -145,7 +145,7 @@ body{
 .cell:not(.revealed){
   border-radius: 12px;
   margin: -1px;
-  z-index: 2;
+  z-index: 1;
   box-shadow: none;
 }
 
