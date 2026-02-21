@@ -6,9 +6,9 @@ if (window.Telegram?.WebApp) {
   try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (_) {}
 }
 
-const ROWS = 25;
+const ROWS = 24;
 const COLS = 16;
-const NUM_MINES = 150;
+const NUM_MINES = 25;
 
 const DIR8 = [
   [-1,-1], [-1,0], [-1,1],

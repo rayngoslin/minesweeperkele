@@ -128,11 +128,12 @@ body{
 }
 
 .cell.revealed{
-  background: var(--light-gray);
-  color: var(--dark-gray);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35);
+  background: var(--dark-gray);
+  color: var(--light-gray);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
   border-radius: 6px;
-  z-index: 2;
+  margin: -1px;
+  z-index: 1;
 }
 .cell.flagged{
   background: var(--dark-red);
@@ -144,6 +145,14 @@ body{
 .cell:not(.revealed){
   border-radius: 12px;
   margin: -1px;
-  z-index: 1;
+  z-index: 2;
   box-shadow: none;
+}
+
+/* Prevent revealed cells from leaving rounded "ghost" gaps */
+#board{
+  background: var(--dark-red);
+  border-radius: 12px;
+  padding: 2px;
+  overflow: hidden;
 }
