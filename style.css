@@ -131,7 +131,7 @@ body{
   background: var(--dark-gray);
   color: var(--light-gray);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
-  border-radius: 12px;
+  border-radius: 4px;
   margin: -1px;
   z-index: 2;
 }
@@ -143,7 +143,7 @@ body{
 
 /* Unrevealed cells merge into a single fluid blob */
 .cell:not(.revealed){
-  border-radius: 12px;
+  border-radius: 4px;
   margin: -1px;
   z-index: 1;
   box-shadow: none;
